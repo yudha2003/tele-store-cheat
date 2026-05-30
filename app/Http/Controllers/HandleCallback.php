@@ -1,5 +1,4 @@
 <?php
-
 namespace App\Http\Controllers;
 
 use App\Libraries\Wijayapay;
@@ -29,6 +28,7 @@ class HandleCallback extends Controller
                 $callbackData === 'menu_history' || str_starts_with($callbackData, 'menu_history:') => $this->handleHistory($callbackData, $data['message'] ?? [], $user, $config),
                 $callbackData === 'menu_account'                                                    => $this->handleAccount($data['message'] ?? [], $user, $config),
                 $callbackData === 'leaderboard' || str_starts_with($callbackData, 'leaderboard:')   => $this->handleLeaderboard($callbackData, $data['message'] ?? [], $config),
+                $callbackData === 'pengumuman'                                                      => $this->handleAnnouncement($data['message'] ?? [], $config),
                 $callbackData === 'current_page'                                                    => $this->answerCallbackQuery($data['id'] ?? null),
                 str_starts_with($callbackData, 'open_invoice:')                                     => $this->handleOpenInvoice($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'check_status:')                                     => $this->handleCheckStatus($callbackData, $data, $user, $config),
@@ -271,7 +271,7 @@ class HandleCallback extends Controller
 
             $invoice_id = trim(
                 str_replace(' ', '', $config->order['prefix_order']) .
-                    $this->random($config->order['length_random_order'], $config->order['string'])
+                $this->random($config->order['length_random_order'], $config->order['string'])
             );
 
             if ($providerPayment === 'wijayapay' && ($config->payments['wijayapay']['status'] ?? false) == true) {
@@ -338,7 +338,7 @@ class HandleCallback extends Controller
                 '{invoice_id}'        => $history->invoice_id,
                 '{status_pembayaran}' => ucfirst($history->payment_status),
                 '{status_proses}'     => ucfirst($history->process_status),
-                '{expired_at}'        => Carbon::parse($history->expire_at)->format('d-m-Y H:i'),
+                '{expired_at}'        => Carbon::parse($history->expire_at)->format('d M Y, H:i \G\M\T+7'),
                 '{game}'              => $game->name ?? '-',
                 '{provider}'          => $provider->name ?? '-',
                 '{denom}'             => $denom->name ?? '-',
@@ -555,7 +555,7 @@ class HandleCallback extends Controller
             $statusPay  = ucfirst($history->payment_status ?? 'pending');
             $statusProc = ucfirst($history->process_status ?? 'pending');
             $priceStr   = 'Rp ' . number_format($history->price, 0, ',', '.');
-            $date       = Carbon::parse($history->created_at)->format('d-m-Y H:i');
+            $date       = Carbon::parse($history->created_at)->format('d M Y, H:i \G\M\T+7');
 
             $listTransactions .= "<b>{$index}. Invoice:</b> <code>{$history->invoice_id}</code>\n";
             $listTransactions .= "   • {$gameName} ({$denomName})\n";
@@ -617,11 +617,11 @@ class HandleCallback extends Controller
 
         $username = $user->username ? '@' . $user->username : '-';
         $role     = ucfirst($user->role ?? 'user');
-        $date     = $user->created_at ? Carbon::parse($user->created_at)->format('d-m-Y H:i') : '-';
+        $date     = $user->created_at ? Carbon::parse($user->created_at)->format('d M Y, H:i \G\M\T+7') : '-';
 
         $caption = str_replace(
             ['{user_id}', '{name}', '{username}', '{role}', '{registered_at}'],
-            [$user->user_id, $fullName, $username, $role, $date . ' (GMT +7)'],
+            [$user->user_id, $fullName, $username, $role, $date],
             $template
         );
 
@@ -761,6 +761,25 @@ class HandleCallback extends Controller
         return editMessageOrCaption($message, $caption, $keyboard);
     }
 
+    private function handleAnnouncement(array $message, $config = null)
+    {
+        $announcement = $config->captions['announcement'] ?? null;
+        if (! $announcement) {
+            $announcement = "Tidak ada pengumuman saat ini.";
+        }
+
+        $date = $config->updated_at ? Carbon::parse($config->updated_at)->format('d M Y, H:i \G\M\T+7') : '-';
+        $caption = "<b>📢 Pengumuman</b>\n\n" . $announcement . "\n\n<i>Diterbitkan: {$date}</i>";
+
+        $keyboard = [
+            [
+                ['text' => '🏠 Menu Utama', 'callback_data' => 'menu_start'],
+            ],
+        ];
+
+        return editMessageOrCaption($message, $caption, $keyboard);
+    }
+
     private function handleOpenInvoice(string $callbackData, array $data, $user, $config = null)
     {
         $explode    = explode(':', $callbackData);
@@ -810,7 +829,7 @@ class HandleCallback extends Controller
             '{invoice_id}'        => $history->invoice_id,
             '{status_pembayaran}' => ucfirst($history->payment_status),
             '{status_proses}'     => ucfirst($history->process_status),
-            '{expired_at}'        => Carbon::parse($history->expire_at)->format('d-m-Y H:i'),
+            '{expired_at}'        => Carbon::parse($history->expire_at)->format('d M Y, H:i \G\M\T+7'),
             '{game}'              => $history->product['game']['name'] ?? '-',
             '{provider}'          => $history->product['provider']['name'] ?? '-',
             '{denom}'             => $history->product['denom']['name'] ?? '-',
