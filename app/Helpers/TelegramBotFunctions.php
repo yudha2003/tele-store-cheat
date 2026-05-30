@@ -1,0 +1,204 @@
+<?php
+use Telegram\Bot\FileUpload\InputFile;
+use Telegram\Bot\Laravel\Facades\Telegram;
+
+function sendRequest(string $event, array $data)
+{
+    try {
+        return Telegram::{$event}($data);
+    } catch (\Throwable $e) {
+        logger()->error('Telegram request error', [
+            'event' => $event,
+            'data'  => $data,
+            'error' => $e->getMessage(),
+        ]);
+
+        return null;
+    }
+}
+
+function telegramKeyboard(?array $keyboard = null): ?string
+{
+    if (! $keyboard) {
+        return null;
+    }
+
+    return json_encode([
+        'inline_keyboard' => $keyboard,
+    ]);
+}
+
+function telegramPhoto($photo)
+{
+    if (is_string($photo) && filter_var($photo, FILTER_VALIDATE_URL)) {
+        return $photo;
+    }
+
+    return InputFile::create($photo);
+}
+
+function forwardMessage($chat_id, $from_chat_id, $message_id)
+{
+    return sendRequest('forwardMessage', [
+        'chat_id'      => $chat_id,
+        'from_chat_id' => $from_chat_id,
+        'message_id'   => $message_id,
+    ]);
+}
+
+function sendMessage(array $data)
+{
+    $params = [
+        'chat_id'    => $data['chat_id'] ?? null,
+        'text'       => $data['text'] ?? '',
+        'parse_mode' => $data['mode'] ?? 'HTML',
+    ];
+
+    if (! empty($data['keyboard'])) {
+        $params['reply_markup'] = telegramKeyboard($data['keyboard']);
+    }
+    return sendRequest('sendMessage', $params);
+}
+
+function sendPhoto($chat_id, $photo, $caption, $keyboard = null, $mode = 'HTML')
+{
+    $params = [
+        'chat_id'    => $chat_id,
+        'photo'      => telegramPhoto($photo),
+        'caption'    => $caption,
+        'parse_mode' => $mode,
+    ];
+
+    if ($keyboard) {
+        $params['reply_markup'] = telegramKeyboard($keyboard);
+    }
+
+    return sendRequest('sendPhoto', $params);
+}
+
+function editMessage($chat_id, $message_id, $photo, $caption, $keyboard = null, $mode = 'HTML')
+{
+    $media = [
+        'type'       => 'photo',
+        'media'      => $photo,
+        'caption'    => $caption,
+        'parse_mode' => $mode,
+    ];
+
+    $params = [
+        'chat_id'    => $chat_id,
+        'message_id' => $message_id,
+        'media'      => json_encode($media),
+    ];
+
+    if ($keyboard) {
+        $params['reply_markup'] = telegramKeyboard($keyboard);
+    }
+
+    return sendRequest('editMessageMedia', $params);
+}
+
+function editCaption(array $data)
+{
+    $params = [
+        'chat_id'    => $data['chat_id'],
+        'message_id' => $data['message_id'],
+        'caption'    => $data['caption'],
+        'parse_mode' => $data['parse_mode'],
+    ];
+    if (isset($data['keyboard'])) {
+        $params['reply_markup'] = telegramKeyboard($data['keyboard']);
+    }
+
+    return sendRequest('editMessageCaption', $params);
+}
+
+function editText($chat_id, $message_id, $text, $keyboard = null, $mode = 'HTML')
+{
+    $params = [
+        'chat_id'    => $chat_id,
+        'message_id' => $message_id,
+        'text'       => $text,
+        'parse_mode' => $mode,
+    ];
+
+    if ($keyboard) {
+        $params['reply_markup'] = telegramKeyboard($keyboard);
+    }
+
+    return sendRequest('editMessageText', $params);
+}
+
+function deleteMessage($chat_id = null, $message_id = null)
+{
+    return sendRequest('deleteMessage', [
+        'chat_id'    => $chat_id,
+        'message_id' => $message_id,
+    ]);
+}
+
+function editKeyboard($chat_id, $message_id, $keyboard)
+{
+    return sendRequest('editMessageReplyMarkup', [
+        'chat_id'      => $chat_id,
+        'message_id'   => $message_id,
+        'reply_markup' => telegramKeyboard($keyboard),
+    ]);
+}
+
+function answerCallbackQuery($callback_query_id, $text = null)
+{
+    $params = [
+        'callback_query_id' => $callback_query_id,
+    ];
+
+    if ($text) {
+        $params['text'] = $text;
+    }
+
+    return sendRequest('answerCallbackQuery', $params);
+}
+
+function editMessageOrCaption(array $message, string $text, ?array $keyboard = null, string $mode = 'HTML')
+{
+    $chat_id    = $message['chat']['id'] ?? null;
+    $message_id = $message['message_id'] ?? null;
+
+    if (isset($message['photo'])) {
+        return editCaption([
+            'chat_id'    => $chat_id,
+            'message_id' => $message_id,
+            'caption'    => $text,
+            'parse_mode' => $mode,
+            'keyboard'   => $keyboard,
+        ]);
+    } else {
+        return editText(
+            $chat_id,
+            $message_id,
+            $text,
+            $keyboard,
+            $mode
+        );
+    }
+}
+function sendFallbackMessage($chat_id)
+{
+    $message = "Maaf, perintah tersebut tidak tersedia.\n\nSilakan gunakan tombol di bawah ini untuk kembali ke menu utama.";
+
+    $keyboard = [
+        [
+            [
+                'text'          => '⬅️ Kembali ke Menu Utama',
+                'callback_data' => 'main_menu',
+            ],
+        ],
+    ];
+
+    return sendMessage([
+        'chat_id'  => $chat_id,
+        'text'     => $message,
+        'mode'     => 'HTML',
+        'keyboard' => $keyboard,
+    ]);
+}
