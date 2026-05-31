@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Validator;
+use Inertia\Inertia;
 
 class AdminConfigController extends Controller
 {
@@ -154,7 +155,10 @@ class AdminConfigController extends Controller
             ]);
         }
 
-        return view('admin.config', compact('config'));
+        return Inertia::render('Admin/Config', [
+            'config' => $config,
+            'adminName' => session('admin_name', 'Administrator'),
+        ]);
     }
 
     /**
@@ -165,6 +169,18 @@ class AdminConfigController extends Controller
         if (session('admin_config_authorized') !== true) {
             return response()->json(['success' => false, 'message' => 'Unauthorized session.'], 403);
         }
+
+        // Cast numeric fields that Vue may send as strings
+        $order = $request->input('order', []);
+        $order['exp_order'] = (int) ($order['exp_order'] ?? 60);
+        $order['count_pending'] = (int) ($order['count_pending'] ?? 4);
+        $order['transaksi_delay'] = (int) ($order['transaksi_delay'] ?? 2);
+        $order['length_random_order'] = (int) ($order['length_random_order'] ?? 12);
+
+        $payments = $request->input('payments', []);
+        $payments['wijayapay']['status'] = filter_var($payments['wijayapay']['status'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+        $request->merge(compact('order', 'payments'));
 
         $validator = Validator::make($request->all(), [
             // Order validation
