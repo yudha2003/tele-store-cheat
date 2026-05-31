@@ -12,4 +12,6 @@ Route::get('/admin/config/error', [AdminConfigController::class, 'loginError'])-
 Route::get('/admin/config/logout', [AdminConfigController::class, 'logout'])->name('admin.config.logout');
 
 Route::get('/admin/config', [AdminConfigController::class, 'edit'])->name('admin.config.edit');
-Route::post('/admin/config', [AdminConfigController::class, 'update'])->name('admin.config.update');
+Route::post('/admin/config', [AdminConfigController::class, 'update'])
+    ->withoutMiddleware(\App\Http\Middleware\HandleInertiaRequests::class)
+    ->name('admin.config.update');

@@ -52,13 +52,11 @@ class HandleCallbackAdmin extends Controller
             return;
         }
 
-        // Generate a secure one-time-use token for admin web interface
         $token = \Illuminate\Support\Str::random(40);
         \Illuminate\Support\Facades\Cache::put('admin_token_' . $user->user_id, $token, now()->addMinutes(15));
 
-        // Build base URL dynamically from request to support ngrok/domain mapping seamlessly
         $baseUrl = request()->getSchemeAndHttpHost();
-        $url = $baseUrl . '/admin/config/login?user_id=' . $user->user_id . '&token=' . $token;
+        $url     = $baseUrl . '/admin/config/login?user_id=' . $user->user_id . '&token=' . $token;
 
         $keyboard = [
             [
@@ -78,4 +76,3 @@ class HandleCallbackAdmin extends Controller
         ]);
     }
 }
-

@@ -10,6 +10,7 @@
     "license": "MIT",
     "require": {
         "php": "^8.3",
+        "inertiajs/inertia-laravel": "*",
         "irazasyed/telegram-bot-sdk": "*",
         "laravel/framework": "^13.8",
         "laravel/sanctum": "^4.0",
