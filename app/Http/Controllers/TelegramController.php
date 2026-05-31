@@ -12,6 +12,11 @@ class TelegramController extends Controller
 
     public function index(Request $request)
     {
+        // file_put_contents(
+        //     'webhook.txt',
+        //     json_encode($request->all(), JSON_PRETTY_PRINT) . PHP_EOL,
+        //     FILE_APPEND
+        // );
         $config        = Config::first();
         $data          = $request->all();
         $dataMessage   = $data['message'] ?? [];
@@ -39,6 +44,10 @@ class TelegramController extends Controller
         }
 
         if (str_starts_with($message, '/start') || $this->backToStart) {
+            if ($user && ! empty($user->session)) {
+                $user->session = null;
+                $user->save();
+            }
             if (! $user) {
                 User::create([
                     'user_id'    => $dataMessage['from']['id'],
@@ -51,8 +60,13 @@ class TelegramController extends Controller
             return response('ok', 200);
         }
 
-        if (str_starts_with($message, '/cek-invoice')) {
+        if (str_starts_with($message, '/cek_invoice')) {
             $this->handleCekInvoice($message, $chatID, $dataMessage, $config);
+            return response('ok', 200);
+        }
+
+        if ($user && ! empty($user->session)) {
+            (new HandleCallback())->handleUserSession($message, $chatID, $dataMessage, $user, $config);
             return response('ok', 200);
         }
 
@@ -84,7 +98,7 @@ class TelegramController extends Controller
         if (empty($invoiceId)) {
             sendMessage([
                 'chat_id'  => $chatID,
-                'text'     => "⚠️ <b>Format Salah</b>\n\nSilakan gunakan format berikut:\n<code>/cek-invoice [ID_INVOICE]</code>\n\nContoh: <code>/cek-invoice KM-FZEER75RXH7Y</code>",
+                'text'     => "⚠️ <b>Format Salah</b>\n\nSilakan gunakan format berikut:\n<code>/cek_invoice INVOICE_ID</code>\n\nContoh: <code>/cek_invoice KM-FZEER75RXH7Y</code>",
                 'mode'     => 'HTML',
                 'keyboard' => $backKeyboard,
             ]);
@@ -107,6 +121,12 @@ class TelegramController extends Controller
     }
     public function sessionStart(int $chatID, array $dataMessage, $config = null, $animation = true): void
     {
+        $user = User::where('user_id', $chatID)->first();
+        if ($user && ! empty($user->session)) {
+            $user->session = null;
+            $user->save();
+        }
+
         $hour = (int) date('H');
 
         $greeting = match (true) {
@@ -177,6 +197,11 @@ class TelegramController extends Controller
                     ['text' => '📜 Riwayat Transaksi', 'callback_data' => 'menu_history'],
                 ],
             ];
+            if ($user->role == 'admin') {
+                $keyboard[] = [
+                    ['text' => '👨‍💼 Menu Admin', 'callback_data' => 'menu_admin'],
+                ];
+            }
 
             if (isset($messageID)) {
                 editCaption([
