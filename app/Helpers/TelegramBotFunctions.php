@@ -46,6 +46,15 @@ function forwardMessage($chat_id, $from_chat_id, $message_id)
     ]);
 }
 
+function copyMessage($chat_id, $from_chat_id, $message_id, $options = [])
+{
+    return sendRequest('copyMessage', array_merge([
+        'chat_id'      => $chat_id,
+        'from_chat_id' => $from_chat_id,
+        'message_id'   => $message_id,
+    ], $options));
+}
+
 function sendMessage(array $data)
 {
     $params = [

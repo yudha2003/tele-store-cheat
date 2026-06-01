@@ -34,7 +34,7 @@ class TelegramController extends Controller
             return response('ok', 200);
         }
 
-        if ($typeChat !== 'private' || ! $chatID || ! $message) {
+        if ($typeChat !== 'private' || ! $chatID) {
             return response('ok', 200);
         }
 
@@ -43,7 +43,12 @@ class TelegramController extends Controller
             $this->syncUser($user, $dataMessage['from']);
         }
 
-        if (str_starts_with($message, '/start') || $this->backToStart) {
+        $hasSession = $user && ! empty($user->session);
+        if (! $message && ! $hasSession) {
+            return response('ok', 200);
+        }
+
+        if ($message && (str_starts_with($message, '/start') || $this->backToStart)) {
             if ($user && ! empty($user->session)) {
                 $user->session = null;
                 $user->save();
@@ -60,13 +65,13 @@ class TelegramController extends Controller
             return response('ok', 200);
         }
 
-        if (str_starts_with($message, '/cek_invoice')) {
+        if ($message && str_starts_with($message, '/cek_invoice')) {
             $this->handleCekInvoice($message, $chatID, $dataMessage, $config);
             return response('ok', 200);
         }
 
         if ($user && ! empty($user->session)) {
-            (new HandleCallback())->handleUserSession($message, $chatID, $dataMessage, $user, $config);
+            (new HandleCallback())->handleUserSession($message ?? '', $chatID, $dataMessage, $user, $config);
             return response('ok', 200);
         }
 

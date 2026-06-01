@@ -24,6 +24,11 @@ class HandleCallback extends Controller
             $teleController = new TelegramController();
             $callbackData   = $data['data'];
 
+            if ($user && str_starts_with($user->session, 'admin_')) {
+                $user->session = null;
+                $user->save();
+            }
+
             return match (true) {
                 $callbackData === 'menu_start'                                                      => $teleController->sessionStart($data['message']['chat']['id'], $data['message'], $config, false),
                 $callbackData === 'menu_games'                                                      => $this->handleMenuOrder($data['message'] ?? [], $user, $config),
@@ -891,41 +896,108 @@ class HandleCallback extends Controller
             $this->answerCallbackQuery($callbackQueryId, 'Membuka invoice...');
         }
 
-        $captionRow = collect($config->captions['orders'] ?? [])->firstWhere('key', 'invoice_order');
-        $template   = is_array($captionRow) ? ($captionRow['content'] ?? null) : null;
+        $downloadButtons = [];
+        if ($history->payment_status === 'paid') {
+            $template = $config->captions['invoice'] ?? null;
+            if (!$template) {
+                $template = "<b>✅ PEMBELIAN BERHASIL</b>\n\n🧾 <b>ID Invoice:</b> <code>{invoice_id}</code>\n🎮 <b>Game:</b> {game}\n🏢 <b>Provider:</b> {provider}\n💎 <b>Masa Aktif:</b> {denom}\n💰 <b>Harga:</b> {price}\n\n🔑 <b>Keterangan / Lisensi:</b>\n{notes}\n\n📖 <b>Tutorial:</b>\n{tutorial}";
+            }
 
-        if (! $template) {
-            $template = "<b>INVOICE PESANAN</b>\n\n<b>ID Invoice:</b> <code>{invoice_id}</code>\n<b>Status Pembayaran:</b> {status_pembayaran}\n<b>Status Proses:</b> {status_proses}\n<b>Berlaku Sampai:</b> {expired_at}\n\n<b>Detail Produk</b>\n🎮 Game: {game}\n🏢 Provider: {provider}\n💎 Denom: {denom}\n💰 Harga: {price}\n\n<b>Metode Pembayaran</b>\n💳 Payment: {payment}\n👤 Atas Nama: {name_account}\n🔢 Nomor Rekening: <code>{number_account}</code>\n🏦 Virtual Account: <code>{virtual_account}</code>\n💼 Nomor Pembayaran: <code>{nomor_pembayaran}</code>\n🔗 {payment_url}\n\n<b>Instruksi</b>\n{instruksi}";
+            // Fetch download data from downloads table
+            $downloadLinks = [];
+            $tutorialText = '';
+
+            $downloadObj = \App\Models\Download::where('game_id', $history->product['game']['id'] ?? 0)
+                ->where('provider_id', $history->product['provider']['id'] ?? 0)
+                ->where('status', 'active')
+                ->first();
+
+            if ($downloadObj) {
+                $downloadLinks = $downloadObj->data ?? [];
+                $tutorialText = $downloadObj->tutorial ?? '';
+            }
+
+            $notesContent = $history->notes['content'] ?? '';
+            // Formulate download buttons
+            if (! empty($downloadLinks)) {
+                foreach ($downloadLinks as $linkObj) {
+                    $titleVal = $linkObj['title'] ?? 'Download';
+                    $linkVal  = $linkObj['link'] ?? '';
+                    if ($linkVal) {
+                        $downloadButtons[] = ['text' => $titleVal, 'url' => $linkVal];
+                    }
+                }
+            } else {
+                $fallbackDl = $history->notes['download'] ?? '';
+                if ($fallbackDl) {
+                    if (filter_var($fallbackDl, FILTER_VALIDATE_URL)) {
+                        $downloadButtons[] = ['text' => '📥 Download File', 'url' => $fallbackDl];
+                    } else {
+                        $notesContent .= "\n\n📥 <b>Download:</b>\n" . $fallbackDl;
+                    }
+                }
+            }
+
+            // Formulate tutorial text
+            if (empty($tutorialText)) {
+                $tutorialText = $history->notes['tutorial'] ?? '';
+            }
+
+            $replaces = [
+                '{invoice_id}' => $history->invoice_id,
+                '{game}'       => $history->product['game']['name'] ?? '-',
+                '{provider}'   => $history->product['provider']['name'] ?? '-',
+                '{denom}'      => $history->product['denom']['name'] ?? '-',
+                '{price}'      => 'Rp ' . number_format($history->price, 0, ',', '.'),
+                '{notes}'      => $notesContent,
+                '{download}'   => '', // Handled as buttons now
+                '{tutorial}'   => $tutorialText ?: '-',
+            ];
+
+            $caption = str_replace(array_keys($replaces), array_values($replaces), $template);
+        } else {
+            $captionRow = collect($config->captions['orders'] ?? [])->firstWhere('key', 'invoice_order');
+            $template   = is_array($captionRow) ? ($captionRow['content'] ?? null) : null;
+
+            if (! $template) {
+                $template = "<b>INVOICE PESANAN</b>\n\n<b>ID Invoice:</b> <code>{invoice_id}</code>\n<b>Status Pembayaran:</b> {status_pembayaran}\n<b>Status Proses:</b> {status_proses}\n<b>Berlaku Sampai:</b> {expired_at}\n\n<b>Detail Produk</b>\n🎮 Game: {game}\n🏢 Provider: {provider}\n💎 Denom: {denom}\n💰 Harga: {price}\n\n<b>Metode Pembayaran</b>\n💳 Payment: {payment}\n👤 Atas Nama: {name_account}\n🔢 Nomor Rekening: <code>{number_account}</code>\n🏦 Virtual Account: <code>{virtual_account}</code>\n💼 Nomor Pembayaran: <code>{nomor_pembayaran}</code>\n🔗 {payment_url}\n\n<b>Instruksi</b>\n{instruksi}";
+            }
+
+            $detail         = $history->payment['detail'] ?? [];
+            $paymentUrlText = ! empty($detail['url']) ? '<a href="' . $detail['url'] . '">Klik untuk bayar</a>' : '-';
+            $paymentName    = $history->payment['name'] ?? $history->payment['payment'] ?? '-';
+
+            $replaces = [
+                '{invoice_id}'        => $history->invoice_id,
+                '{status_pembayaran}' => ucfirst($history->payment_status),
+                '{status_proses}'     => ucfirst($history->process_status),
+                '{expired_at}'        => Carbon::parse($history->expire_at)->format('d M Y, H:i \G\M\T+7'),
+                '{game}'              => $history->product['game']['name'] ?? '-',
+                '{provider}'          => $history->product['provider']['name'] ?? '-',
+                '{denom}'             => $history->product['denom']['name'] ?? '-',
+                '{product_price}'     => 'Rp ' . number_format($history->price, 0, ',', '.'),
+                '{fee_fixed}'         => 'Rp ' . number_format($history->payment['fee_fixed'] ?? 0, 0, ',', '.'),
+                '{fee_percent}'       => 'Rp ' . number_format($history->payment['fee_percent'] ?? 0, 0, ',', '.'),
+                '{price}'             => 'Rp ' . number_format($history->price, 0, ',', '.'),
+                '{payment}'           => $paymentName,
+                '{name_account}'      => $detail['name_account'] ?? '-',
+                '{number_account}'    => $detail['number_account'] ?? '-',
+                '{virtual_account}'   => $detail['virtual_account'] ?? '-',
+                '{nomor_pembayaran}'  => $detail['nomor_pembayaran'] ?? '-',
+                '{payment_url}'       => $paymentUrlText,
+                '{instruksi}'         => $detail['instruksi'] ?? 'Silakan selesaikan pembayaran sebelum waktu habis.',
+            ];
+
+            $caption = str_replace(array_keys($replaces), array_values($replaces), $template);
         }
 
-        $detail         = $history->payment['detail'] ?? [];
-        $paymentUrlText = ! empty($detail['url']) ? '<a href="' . $detail['url'] . '">Klik untuk bayar</a>' : '-';
-        $paymentName    = $history->payment['name'] ?? $history->payment['payment'] ?? '-';
-
-        $replaces = [
-            '{invoice_id}'        => $history->invoice_id,
-            '{status_pembayaran}' => ucfirst($history->payment_status),
-            '{status_proses}'     => ucfirst($history->process_status),
-            '{expired_at}'        => Carbon::parse($history->expire_at)->format('d M Y, H:i \G\M\T+7'),
-            '{game}'              => $history->product['game']['name'] ?? '-',
-            '{provider}'          => $history->product['provider']['name'] ?? '-',
-            '{denom}'             => $history->product['denom']['name'] ?? '-',
-            '{product_price}'     => 'Rp ' . number_format($history->price, 0, ',', '.'),
-            '{fee_fixed}'         => 'Rp ' . number_format($history->payment['fee_fixed'] ?? 0, 0, ',', '.'),
-            '{fee_percent}'       => 'Rp ' . number_format($history->payment['fee_percent'] ?? 0, 0, ',', '.'),
-            '{price}'             => 'Rp ' . number_format($history->price, 0, ',', '.'),
-            '{payment}'           => $paymentName,
-            '{name_account}'      => $detail['name_account'] ?? '-',
-            '{number_account}'    => $detail['number_account'] ?? '-',
-            '{virtual_account}'   => $detail['virtual_account'] ?? '-',
-            '{nomor_pembayaran}'  => $detail['nomor_pembayaran'] ?? '-',
-            '{payment_url}'       => $paymentUrlText,
-            '{instruksi}'         => $detail['instruksi'] ?? 'Silakan selesaikan pembayaran sebelum waktu habis.',
-        ];
-
-        $caption = str_replace(array_keys($replaces), array_values($replaces), $template);
-
         $keyboard = [];
+        if ($history->payment_status === 'paid' && ! empty($downloadButtons)) {
+            foreach ($downloadButtons as $btn) {
+                $keyboard[] = [$btn];
+            }
+        }
+
         if ($history->payment_status === 'pending') {
             $keyboard[] = [
                 ['text' => '❌ Batalkan Pesanan', 'callback_data' => 'cancel_order:' . $history->invoice_id],
@@ -1004,6 +1076,10 @@ class HandleCallback extends Controller
 
     public function handleUserSession(string $message, int $chatID, array $dataMessage, $user = null, $config = null)
     {
+        if ($user && str_starts_with($user->session, 'admin_')) {
+            return (new HandleCallbackAdmin())->handleAdminSession($message, $chatID, $dataMessage, $user, $config);
+        }
+
         if ($user && str_starts_with($user->session, 'reset_license:')) {
             $providerId = str_replace('reset_license:', '', $user->session);
             $provider   = Provider::where([['id', $providerId], ['reset_license', 'enabled'], ['status', 'active']])->first();

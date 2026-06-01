@@ -1,0 +1,226 @@
+{
+    "update_id": 232255518,
+    "callback_query": {
+        "id": "5713888820547894377",
+        "from": {
+            "id": 5625335707,
+            "is_bot": false,
+            "first_name": "ZX \u2022 Akira",
+            "username": "Akiracode",
+            "language_code": "id"
+        },
+        "message": {
+            "message_id": 595,
+            "from": {
+                "id": 7314122971,
+                "is_bot": true,
+                "first_name": "BOT ORDER CHEAT",
+                "username": "NewAssistantStore_bot"
+            },
+            "chat": {
+                "id": 5625335707,
+                "first_name": "ZX \u2022 Akira",
+                "username": "Akiracode",
+                "type": "private"
+            },
+            "date": 1780226986,
+            "edit_date": 1780227006,
+            "photo": [
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADcwADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVB4",
+                    "file_size": 1038,
+                    "width": 90,
+                    "height": 54
+                },
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADbQADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVBy",
+                    "file_size": 11803,
+                    "width": 320,
+                    "height": 192
+                },
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADeAADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVB9",
+                    "file_size": 46385,
+                    "width": 800,
+                    "height": 480
+                },
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADeQADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVB-",
+                    "file_size": 91678,
+                    "width": 1280,
+                    "height": 768
+                },
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADdwADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVB8",
+                    "file_size": 217040,
+                    "width": 2500,
+                    "height": 1500
+                }
+            ],
+            "caption": "\ud83d\udc68\u200d\ud83d\udcbc Menu Panel Admin\n\nSilakan pilih kategori konfigurasi di bawah ini untuk mengelola bot langsung dari Telegram:",
+            "caption_entities": [
+                {
+                    "offset": 6,
+                    "length": 16,
+                    "type": "bold"
+                }
+            ],
+            "reply_markup": {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "\u2699\ufe0f Konfigurasi Bot",
+                            "callback_data": "menu_admin:config"
+                        }
+                    ],
+                    [
+                        {
+                            "text": "\ud83c\udfae Kelola Game",
+                            "callback_data": "menu_admin:game"
+                        },
+                        {
+                            "text": "\ud83c\udfe2 Kelola Provider",
+                            "callback_data": "menu_admin:provider"
+                        }
+                    ],
+                    [
+                        {
+                            "text": "\ud83d\udce6 Kelola Denom",
+                            "callback_data": "menu_admin:denom"
+                        },
+                        {
+                            "text": "\ud83d\udcdc Kelola History",
+                            "callback_data": "menu_admin:history"
+                        }
+                    ],
+                    [
+                        {
+                            "text": "\ud83c\udfe0 Menu Utama",
+                            "callback_data": "menu_start"
+                        }
+                    ]
+                ]
+            }
+        },
+        "chat_instance": "-6367219692078351010",
+        "data": "menu_admin:history"
+    }
+}
+{
+    "update_id": 232255518,
+    "callback_query": {
+        "id": "5713888820547894377",
+        "from": {
+            "id": 5625335707,
+            "is_bot": false,
+            "first_name": "ZX \u2022 Akira",
+            "username": "Akiracode",
+            "language_code": "id"
+        },
+        "message": {
+            "message_id": 595,
+            "from": {
+                "id": 7314122971,
+                "is_bot": true,
+                "first_name": "BOT ORDER CHEAT",
+                "username": "NewAssistantStore_bot"
+            },
+            "chat": {
+                "id": 5625335707,
+                "first_name": "ZX \u2022 Akira",
+                "username": "Akiracode",
+                "type": "private"
+            },
+            "date": 1780226986,
+            "edit_date": 1780227006,
+            "photo": [
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADcwADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVB4",
+                    "file_size": 1038,
+                    "width": 90,
+                    "height": 54
+                },
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADbQADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVBy",
+                    "file_size": 11803,
+                    "width": 320,
+                    "height": 192
+                },
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADeAADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVB9",
+                    "file_size": 46385,
+                    "width": 800,
+                    "height": 480
+                },
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADeQADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVB-",
+                    "file_size": 91678,
+                    "width": 1280,
+                    "height": 768
+                },
+                {
+                    "file_id": "AgACAgQAAxkDAAIBP2oX2dAyiJbFJ2f0eAr5xBEHZhrWAAJxDmsbot7FUGshOHf8E6APAQADAgADdwADOwQ",
+                    "file_unique_id": "AQADcQ5rG6LexVB8",
+                    "file_size": 217040,
+                    "width": 2500,
+                    "height": 1500
+                }
+            ],
+            "caption": "\ud83d\udc68\u200d\ud83d\udcbc Menu Panel Admin\n\nSilakan pilih kategori konfigurasi di bawah ini untuk mengelola bot langsung dari Telegram:",
+            "caption_entities": [
+                {
+                    "offset": 6,
+                    "length": 16,
+                    "type": "bold"
+                }
+            ],
+            "reply_markup": {
+                "inline_keyboard": [
+                    [
+                        {
+                            "text": "\u2699\ufe0f Konfigurasi Bot",
+                            "callback_data": "menu_admin:config"
+                        }
+                    ],
+                    [
+                        {
+                            "text": "\ud83c\udfae Kelola Game",
+                            "callback_data": "menu_admin:game"
+                        },
+                        {
+                            "text": "\ud83c\udfe2 Kelola Provider",
+                            "callback_data": "menu_admin:provider"
+                        }
+                    ],
+                    [
+                        {
+                            "text": "\ud83d\udce6 Kelola Denom",
+                            "callback_data": "menu_admin:denom"
+                        },
+                        {
+                            "text": "\ud83d\udcdc Kelola History",
+                            "callback_data": "menu_admin:history"
+                        }
+                    ],
+                    [
+                        {
+                            "text": "\ud83c\udfe0 Menu Utama",
+                            "callback_data": "menu_start"
+                        }
+                    ]
+                ]
+            }
+        },
+        "chat_instance": "-6367219692078351010",
+        "data": "menu_admin:history"
+    }
+}

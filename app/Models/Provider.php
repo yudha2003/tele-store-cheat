@@ -7,7 +7,8 @@ class Provider extends Model
 {
     protected $guarded = ['id'];
     public $casts      = [
-        'url' => 'array',
+        'custom_data' => 'array',
+        'url'         => 'array',
     ];
 
     public static function search($search = null)
