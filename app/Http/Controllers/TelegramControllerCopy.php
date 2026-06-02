@@ -60,7 +60,7 @@ class TelegramControllerCopy extends Controller
             // Kirim foto awal dengan caption loading
             $sendMessage = sendPhoto(
                 $chatID,
-                config('website.image_cmd_start'),
+                $config->bot['image'],
                 "<b>{$greeting} {$firstName}</b>\n\nMempersiapkan sesi\n[□□□□□]"
             );
 

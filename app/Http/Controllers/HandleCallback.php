@@ -501,7 +501,7 @@ class HandleCallback extends Controller
 
         return sendPhoto(
             $data['message']['chat']['id'] ?? null,
-            config('website.image_cmd_start'),
+            $config->bot['image'],
             $caption,
             $keyboard,
             'HTML'
@@ -899,13 +899,13 @@ class HandleCallback extends Controller
         $downloadButtons = [];
         if ($history->payment_status === 'paid') {
             $template = $config->captions['invoice'] ?? null;
-            if (!$template) {
+            if (! $template) {
                 $template = "<b>✅ PEMBELIAN BERHASIL</b>\n\n🧾 <b>ID Invoice:</b> <code>{invoice_id}</code>\n🎮 <b>Game:</b> {game}\n🏢 <b>Provider:</b> {provider}\n💎 <b>Masa Aktif:</b> {denom}\n💰 <b>Harga:</b> {price}\n\n🔑 <b>Keterangan / Lisensi:</b>\n{notes}\n\n📖 <b>Tutorial:</b>\n{tutorial}";
             }
 
             // Fetch download data from downloads table
             $downloadLinks = [];
-            $tutorialText = '';
+            $tutorialText  = '';
 
             $downloadObj = \App\Models\Download::where('game_id', $history->product['game']['id'] ?? 0)
                 ->where('provider_id', $history->product['provider']['id'] ?? 0)
@@ -914,7 +914,7 @@ class HandleCallback extends Controller
 
             if ($downloadObj) {
                 $downloadLinks = $downloadObj->data ?? [];
-                $tutorialText = $downloadObj->tutorial ?? '';
+                $tutorialText  = $downloadObj->tutorial ?? '';
             }
 
             $notesContent = $history->notes['content'] ?? '';

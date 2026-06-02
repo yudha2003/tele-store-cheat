@@ -151,7 +151,7 @@ class TelegramController extends Controller
             if ($animation) {
                 $sendMessage = Telegram::sendPhoto([
                     'chat_id'    => $chatID,
-                    'photo'      => config('website.image_cmd_start'),
+                    'photo'      => $config->bot['image'],
                     'caption'    => 'Menyiapkan menu...',
                     'parse_mode' => 'HTML',
                 ]);
@@ -221,7 +221,7 @@ class TelegramController extends Controller
                     editMessage(
                         $chatID,
                         $dataMessage['message_id'],
-                        config('website.image_cmd_start'),
+                        $config->bot['image'],
                         $finalCaption,
                         $keyboard
                     );
@@ -231,7 +231,7 @@ class TelegramController extends Controller
                     }
                     sendPhoto(
                         $chatID,
-                        config('website.image_cmd_start'),
+                        $config->bot['image'],
                         $finalCaption,
                         $keyboard
                     );

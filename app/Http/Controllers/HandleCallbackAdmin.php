@@ -431,8 +431,11 @@ class HandleCallbackAdmin extends Controller
         ];
 
         $label  = $fieldNameMap[$field] ?? $field;
-        $prompt = "✍️ Silakan kirimkan nilai baru untuk <b>{$label}</b> di chat ini.\n\n" .
-            "⚠️ <i>Klik tombol Batal di bawah untuk membatalkan perubahan.</i>";
+        $prompt = "✍️ Silakan kirimkan nilai baru untuk <b>{$label}</b> di chat ini.";
+        if ($field === 'image') {
+            $prompt .= "\n💡 Anda juga bisa langsung mengirimkan file gambar/foto di chat ini untuk diunggah otomatis.";
+        }
+        $prompt .= "\n\n⚠️ <i>Klik tombol Batal di bawah untuk membatalkan perubahan.</i>";
 
         $keyboard = [
             [
@@ -1101,11 +1104,11 @@ class HandleCallbackAdmin extends Controller
 
     private function handleProviderCustomDataList(string $callbackData, array $data, $user = null, $config = null)
     {
-        $parts = explode(':', $callbackData);
+        $parts      = explode(':', $callbackData);
         $providerId = $parts[2] ?? null;
 
         $provider = Provider::find($providerId);
-        if (!$provider) {
+        if (! $provider) {
             if (isset($data['id'])) {
                 $this->answerCallbackQuery($data['id'], 'Provider tidak ditemukan.');
             }
@@ -1123,37 +1126,37 @@ class HandleCallbackAdmin extends Controller
         } else {
             $index = 1;
             foreach ($customData as $item) {
-                $game = Game::find($item['game_id'] ?? 0);
-                $gameName = $game ? $game->name : "Game ID: " . ($item['game_id'] ?? '-');
-                $caption .= "{$index}. <b>{$item['key']}</b> ({$gameName}) = <code>" . htmlspecialchars($item['value'], ENT_QUOTES, 'UTF-8') . "</code>\n";
+                $game      = Game::find($item['game_id'] ?? 0);
+                $gameName  = $game ? $game->name : "Game ID: " . ($item['game_id'] ?? '-');
+                $caption  .= "{$index}. <b>{$item['key']}</b> ({$gameName}) = <code>" . htmlspecialchars($item['value'], ENT_QUOTES, 'UTF-8') . "</code>\n";
                 $index++;
             }
         }
 
         $buttons = [];
-        if (!empty($customData)) {
+        if (! empty($customData)) {
             $idx = 0;
             $row = [];
             foreach ($customData as $item) {
                 $row[] = [
-                    'text' => '🗑️ Hapus #' . ($idx + 1),
-                    'callback_data' => "menu_admin:provider_cd_delete:{$providerId}:{$idx}"
+                    'text'          => '🗑️ Hapus #' . ($idx + 1),
+                    'callback_data' => "menu_admin:provider_cd_delete:{$providerId}:{$idx}",
                 ];
                 if (count($row) === 2) {
                     $buttons[] = $row;
-                    $row = [];
+                    $row       = [];
                 }
                 $idx++;
             }
-            if (!empty($row)) {
+            if (! empty($row)) {
                 $buttons[] = $row;
             }
         }
 
-        $buttons[] = [
+        $buttons[]  = [
             ['text' => '➕ Tambah Custom Data', 'callback_data' => "menu_admin:provider_cd_add_game:{$providerId}"],
         ];
-        $buttons[] = [
+        $buttons[]  = [
             ['text' => '⬅️ Kembali ke Detail', 'callback_data' => "menu_admin:provider_detail:{$providerId}"],
         ];
 
@@ -1162,31 +1165,31 @@ class HandleCallbackAdmin extends Controller
 
     private function handleProviderCDAddGame(string $callbackData, array $data, $user = null, $config = null)
     {
-        $parts = explode(':', $callbackData);
+        $parts      = explode(':', $callbackData);
         $providerId = $parts[2] ?? null;
 
         $provider = Provider::find($providerId);
-        if (!$provider) {
+        if (! $provider) {
             if (isset($data['id'])) {
                 $this->answerCallbackQuery($data['id'], 'Provider tidak ditemukan.');
             }
             return;
         }
 
-        $games = Game::all();
+        $games   = Game::all();
         $caption = "➕ <b>Tambah Custom Data - {$provider->name}</b>\n\n" .
             "<b>Langkah 1/3:</b> Silakan pilih <b>Game</b> yang ingin dipetakan:";
 
         $buttons = $games->map(function ($g) use ($providerId) {
             return [
-                'text' => $g->name,
-                'callback_data' => "menu_admin:provider_cd_add_key:{$providerId}:{$g->id}"
+                'text'          => $g->name,
+                'callback_data' => "menu_admin:provider_cd_add_key:{$providerId}:{$g->id}",
             ];
         })->toArray();
 
-        $keyboard = array_chunk($buttons, 2);
+        $keyboard   = array_chunk($buttons, 2);
         $keyboard[] = [
-            ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"]
+            ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"],
         ];
 
         return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
@@ -1194,13 +1197,13 @@ class HandleCallbackAdmin extends Controller
 
     private function handleProviderCDAddKey(string $callbackData, array $data, $user = null, $config = null)
     {
-        $parts = explode(':', $callbackData);
+        $parts      = explode(':', $callbackData);
         $providerId = $parts[2] ?? null;
-        $gameId = $parts[3] ?? null;
+        $gameId     = $parts[3] ?? null;
 
         $provider = Provider::find($providerId);
-        $game = Game::find($gameId);
-        if (!$provider || !$game) {
+        $game     = Game::find($gameId);
+        if (! $provider || ! $game) {
             if (isset($data['id'])) {
                 $this->answerCallbackQuery($data['id'], 'Data tidak ditemukan.');
             }
@@ -1209,37 +1212,49 @@ class HandleCallbackAdmin extends Controller
 
         $caption = "➕ <b>Tambah Custom Data - {$provider->name}</b>\n\n" .
             "• <b>Game:</b> {$game->name}\n\n" .
-            "<b>Langkah 2/3:</b> Silakan pilih tipe key:\n\n" .
-            "• <code>c_gameid</code>: biasanya angka / integer (contoh: 1, 2, dll)\n" .
-            "• <code>c_cgame</code>: biasanya huruf / string (contoh: MLBB, CODM, dll)";
+            "<b>Langkah 2/3:</b> Silakan pilih tipe key:\n\n";
 
-        $user->session = "admin_provider_custom_data_value:{$providerId}:{$gameId}:c_gameid";
+        if ($provider->type_api == 1) {
+            $caption       .= "Pilih <code>c_gameid</code> jika ingin memetakan ID Game dari sistem ke provider.\n";
+            $selectedField  = 'c_gameid';
+            $keyboard       = [
+                [
+                    ['text' => 'c_gameid', 'callback_data' => "menu_admin:provider_cd_prompt_val:{$providerId}:{$gameId}:c_gameid"],
+                ],
+                [
+                    ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"],
+                ],
+            ];
+        } else {
+            $caption       .= "Pilih <code>c_cgame</code> jika ingin memetakan Kode Game (code) dari sistem ke provider.";
+            $selectedField  = 'c_cgame';
+            $keyboard       = [
+                [
+                    ['text' => 'c_cgame', 'callback_data' => "menu_admin:provider_cd_prompt_val:{$providerId}:{$gameId}:c_cgame"],
+                ],
+                [
+                    ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"],
+                ],
+            ];
+        }
+
+        $user->session  = "admin_provider_custom_data_value:{$providerId}:{$gameId}:{$selectedField}";
         $user->save();
-
-        $keyboard = [
-            [
-                ['text' => 'c_gameid', 'callback_data' => "menu_admin:provider_cd_prompt_val:{$providerId}:{$gameId}:c_gameid"],
-                ['text' => 'c_cgame', 'callback_data' => "menu_admin:provider_cd_prompt_val:{$providerId}:{$gameId}:c_cgame"],
-            ],
-            [
-                ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"]
-            ]
-        ];
 
         return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
     }
 
     private function handleProviderCDPromptVal(string $callbackData, array $data, $user = null, $config = null)
     {
-        $parts = explode(':', $callbackData);
+        $parts      = explode(':', $callbackData);
         $providerId = $parts[2] ?? null;
-        $gameId = $parts[3] ?? null;
-        $key = $parts[4] ?? null;
+        $gameId     = $parts[3] ?? null;
+        $key        = $parts[4] ?? null;
 
         $provider = Provider::find($providerId);
-        $game = Game::find($gameId);
+        $game     = Game::find($gameId);
 
-        if (!$provider || !$game) {
+        if (! $provider || ! $game) {
             return;
         }
 
@@ -1253,8 +1268,8 @@ class HandleCallbackAdmin extends Controller
 
         $keyboard = [
             [
-                ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"]
-            ]
+                ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"],
+            ],
         ];
 
         return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
@@ -1262,9 +1277,9 @@ class HandleCallbackAdmin extends Controller
 
     private function handleProviderCDDelete(string $callbackData, array $data, $user = null, $config = null)
     {
-        $parts = explode(':', $callbackData);
+        $parts      = explode(':', $callbackData);
         $providerId = $parts[2] ?? null;
-        $index = intval($parts[3] ?? -1);
+        $index      = intval($parts[3] ?? -1);
 
         $provider = Provider::find($providerId);
         if ($provider && $index >= 0) {
@@ -3027,22 +3042,22 @@ class HandleCallbackAdmin extends Controller
             }
 
             $customData = $provider->custom_data ?? [];
-            
+
             $updated = false;
             foreach ($customData as &$item) {
                 if (($item['game_id'] ?? null) == $gameId && ($item['key'] ?? null) === $key) {
                     $item['value'] = $value;
-                    $updated = true;
+                    $updated       = true;
                     break;
                 }
             }
             unset($item);
 
-            if (!$updated) {
+            if (! $updated) {
                 $customData[] = [
                     'key'     => $key,
                     'game_id' => intval($gameId),
-                    'value'   => $value
+                    'value'   => $value,
                 ];
             }
 
@@ -3059,9 +3074,9 @@ class HandleCallbackAdmin extends Controller
             ];
 
             return sendMessage([
-                'chat_id'  => $chatID,
-                'text'     => "✅ <b>Custom Data Berhasil Ditambahkan/Diperbarui!</b>\n\n• <b>Provider:</b> {$provider->name}\n• <b>Game:</b> {$game->name}\n• <b>Key:</b> <code>{$key}</code>\n• <b>Value:</b> <code>" . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . "</code>",
-                'mode'     => 'HTML',
+                'chat_id' => $chatID,
+                'text'    => "✅ <b>Custom Data Berhasil Ditambahkan/Diperbarui!</b>\n\n• <b>Provider:</b> {$provider->name}\n• <b>Game:</b> {$game->name}\n• <b>Key:</b> <code>{$key}</code>\n• <b>Value:</b> <code>" . htmlspecialchars($value, ENT_QUOTES, 'UTF-8') . "</code>",
+                'mode' => 'HTML',
                 'keyboard' => $keyboard,
             ]);
         }
@@ -3106,7 +3121,7 @@ class HandleCallbackAdmin extends Controller
                 return sendMessage([
                     'chat_id' => $chatID,
                     'text'    => "✅ <b>Konfigurasi Download Berhasil Dibuat!</b>\n\n• ID: <code>{$download->id}</code>\n• Game ID: <code>{$download->game_id}</code>\n• Provider ID: <code>{$download->provider_id}</code>\n• Jumlah Link: <code>" . count($parsedData) . " link</code>",
-                    'mode'     => 'HTML',
+                    'mode' => 'HTML',
                     'keyboard' => $keyboard,
                 ]);
             }
@@ -4177,8 +4192,58 @@ class HandleCallbackAdmin extends Controller
                 }
             } elseif ($category === 'bot') {
                 if ($field === 'image') {
-                    if (! filter_var($message, FILTER_VALIDATE_URL)) {
-                        $error = 'Format URL gambar tidak valid. Harus dimulai dengan http:// atau https://';
+                    $fileId = null;
+                    $photo  = $dataMessage['photo'] ?? null;
+                    if (! empty($photo)) {
+                        $photoItem = end($photo);
+                        $fileId    = $photoItem['file_id'] ?? null;
+                    }
+                    $document = $dataMessage['document'] ?? null;
+                    if (! $fileId && $document && str_starts_with($document['mime_type'] ?? '', 'image/')) {
+                        $fileId = $document['file_id'] ?? null;
+                    }
+
+                    if ($fileId) {
+                        try {
+                            $file     = \Telegram\Bot\Laravel\Facades\Telegram::getFile(['file_id' => $fileId]);
+                            $filePath = null;
+                            if (is_object($file)) {
+                                if (method_exists($file, 'getFilePath')) {
+                                    $filePath = $file->getFilePath();
+                                }
+                                if (! $filePath) {
+                                    $filePath = $file->file_path ?? $file->get('file_path') ?? null;
+                                }
+                            } elseif (is_array($file)) {
+                                $filePath = $file['file_path'] ?? null;
+                            }
+
+                            if ($filePath) {
+                                $token    = config('telegram.bots.mybot.token') ?: env('TELEGRAM_BOT_TOKEN');
+                                $fileUrl  = "https://api.telegram.org/file/bot{$token}/{$filePath}";
+                                $response = \Illuminate\Support\Facades\Http::get($fileUrl);
+                                if ($response->successful()) {
+                                    $fileContents = $response->body();
+                                    $extension    = pathinfo($filePath, PATHINFO_EXTENSION) ?: 'jpg';
+                                    $fileName     = 'bot_image_' . time() . '.' . $extension;
+
+                                    \Illuminate\Support\Facades\Storage::disk('public')->put('bot/' . $fileName, $fileContents);
+
+                                    $val     = asset('storage/bot/' . $fileName);
+                                    $message = $val;
+                                } else {
+                                    $error = 'Gagal mengunduh gambar dari Telegram.';
+                                }
+                            } else {
+                                $error = 'Gagal mendapatkan path file gambar dari Telegram.';
+                            }
+                        } catch (\Throwable $e) {
+                            $error = 'Terjadi kesalahan saat mengunggah gambar: ' . $e->getMessage();
+                        }
+                    } else {
+                        if (! filter_var($message, FILTER_VALIDATE_URL)) {
+                            $error = 'Format URL gambar tidak valid. Harus dimulai dengan http:// atau https/ atau silakan kirim langsung file gambarnya ke chat ini.';
+                        }
                     }
                 } elseif ($field === 'contact') {
                     if (empty(trim($message))) {
