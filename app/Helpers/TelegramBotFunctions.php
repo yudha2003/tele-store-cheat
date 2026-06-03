@@ -1,17 +1,46 @@
 <?php
+
 use Telegram\Bot\FileUpload\InputFile;
 use Telegram\Bot\Laravel\Facades\Telegram;
 
 function sendRequest(string $event, array $data)
 {
+    $logMsg = "[" . date('Y-m-d H:i:s') . "] Calling " . $event . " with data: " . json_encode($data) . PHP_EOL;
     try {
-        return Telegram::{$event}($data);
+        file_put_contents(public_path('tele_debug.txt'), $logMsg, FILE_APPEND);
+    } catch (\Throwable $e) {}
+
+    try {
+        $result = Telegram::{$event}($data);
+        try {
+            file_put_contents(public_path('tele_debug.txt'), "[" . date('Y-m-d H:i:s') . "] Success calling " . $event . PHP_EOL, FILE_APPEND);
+        } catch (\Throwable $e) {}
+        return $result;
     } catch (\Throwable $e) {
+        $errorMsg = "[" . date('Y-m-d H:i:s') . "] Error calling " . $event . ": " . $e->getMessage() . " in " . $e->getFile() . ":" . $e->getLine() . PHP_EOL;
+        try {
+            file_put_contents(public_path('tele_debug.txt'), $errorMsg, FILE_APPEND);
+        } catch (\Throwable $ex) {}
+
         logger()->error('Telegram request error', [
             'event' => $event,
             'data'  => $data,
             'error' => $e->getMessage(),
         ]);
+
+        if (isset($data['chat_id'])) {
+            try {
+                // Send raw error back to the user/admin chat
+                Telegram::sendMessage([
+                    'chat_id' => $data['chat_id'],
+                    'text'    => "⚠️ Telegram API Error in " . $event . ":\n" . $e->getMessage() . "\n\nPayload:\n" . substr(json_encode($data, JSON_PRETTY_PRINT), 0, 3000),
+                ]);
+            } catch (\Throwable $ex) {
+                try {
+                    file_put_contents(public_path('tele_debug.txt'), "[" . date('Y-m-d H:i:s') . "] Error sending fallback: " . $ex->getMessage() . PHP_EOL, FILE_APPEND);
+                } catch (\Throwable $ey) {}
+            }
+        }
 
         return null;
     }

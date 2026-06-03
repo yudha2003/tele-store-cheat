@@ -3,12 +3,16 @@ namespace App\Http\Controllers;
 
 use App\Libraries\Apiv1;
 use App\Libraries\Apiv2;
+use App\Libraries\Apiv3;
+use App\Libraries\Pakasir;
 use App\Libraries\Wijayapay;
 use App\Models\Denom;
+use App\Models\Download;
 use App\Models\Game;
 use App\Models\History;
 use App\Models\Payment;
 use App\Models\Provider;
+use App\Models\Stock;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -24,7 +28,7 @@ class HandleCallback extends Controller
             $teleController = new TelegramController();
             $callbackData   = $data['data'];
 
-            if ($user && str_starts_with($user->session, 'admin_')) {
+            if ($user && str_starts_with($user->session, 'admin_') && ! str_starts_with($callbackData, 'menu_admin')) {
                 $user->session = null;
                 $user->save();
             }
@@ -35,6 +39,7 @@ class HandleCallback extends Controller
                 $callbackData === 'menu_history' || str_starts_with($callbackData, 'menu_history:') => $this->handleHistory($callbackData, $data['message'] ?? [], $user, $config),
                 $callbackData === 'menu_account'                                                    => $this->handleAccount($data['message'] ?? [], $user, $config),
                 $callbackData === 'menu_resetlicense'                                               => $this->handleResetLicense($callbackData, $data, $user, $config),
+                str_starts_with($callbackData, 'reset_license:')                                    => $this->handleDoResetLicense($callbackData, $data, $user, $config),
                 $callbackData === 'cancel_reset_license'                                            => $this->handleCancelResetLicense($data['message'] ?? [], $user, $config),
                 str_starts_with($callbackData, 'reset_license_prov:')                               => $this->selectResetLicenseProvider($callbackData, $data, $user, $config),
                 $callbackData === 'leaderboard' || str_starts_with($callbackData, 'leaderboard:')   => $this->handleLeaderboard($callbackData, $data['message'] ?? [], $config),
@@ -122,6 +127,8 @@ class HandleCallback extends Controller
 
     private function handleDenoms(string $callbackData, array $data, $user, $config = null)
     {
+        $this->cleanExpiredStockReservations();
+
         $explode     = explode(':', $callbackData);
         $provider_id = $explode[1] ?? null;
         $game_id     = $explode[2] ?? null;
@@ -137,18 +144,23 @@ class HandleCallback extends Controller
             return $this->answerCallbackQuery($data['id'] ?? null, 'Data provider tidak ditemukan', true);
         }
 
-        $buttons = $denom->map(function ($row) use ($provider_id, $game_id) {
+        $buttons = $denom->map(function ($row) use ($provider, $provider_id, $game_id) {
+            $nameText = $row->name;
+            if ($provider->type_api == 0) {
+                $stockCount  = Stock::where('denom_id', $row->id)->where('status', 'ready')->count();
+                $nameText   .= " (Stok: {$stockCount})";
+            }
             return [
-                'text'          => $row->name,
+                'text'          => $nameText,
                 'callback_data' => 'data_payment:' . $row->id . ':' . $provider_id . ':' . $game_id,
             ];
         })->toArray();
 
-        $keyboard   = array_chunk($buttons, 2);
-        $keyboard[] = [
+        $keyboard    = array_chunk($buttons, 2);
+        $keyboard[]  = [
             ['text' => '📦 Pilih Produk Lain', 'callback_data' => 'provider:' . $game_id],
         ];
-        $keyboard[] = [
+        $keyboard[]  = [
             ['text' => '🎮 Pilih Game Lain', 'callback_data' => 'menu_games'],
         ];
 
@@ -162,6 +174,8 @@ class HandleCallback extends Controller
 
     private function handlePayments(string $callbackData, array $data, $user, $config = null)
     {
+        $this->cleanExpiredStockReservations();
+
         $explode     = explode(':', $callbackData);
         $denom_id    = $explode[1] ?? null;
         $provider_id = $explode[2] ?? null;
@@ -170,6 +184,19 @@ class HandleCallback extends Controller
 
         if (! $denom) {
             return $this->answerCallbackQuery($data['id'] ?? null, 'Data denom tidak ditemukan');
+        }
+
+        $provider = Provider::where('id', $provider_id)->first();
+
+        if (! $provider) {
+            return $this->answerCallbackQuery($data['id'], 'Data provider dari denom tidak ditemukan');
+        }
+
+        if ($provider->type_api == 0) {
+            $stockCount = Stock::where('denom_id', $denom_id)->where('status', 'ready')->count();
+            if ($stockCount <= 0) {
+                return $this->answerCallbackQuery($data['id'] ?? null, '❌ Maaf, stok produk ini sedang kosong.', true);
+            }
         }
 
         $payment = Payment::where('status', 'active')->get();
@@ -184,12 +211,6 @@ class HandleCallback extends Controller
                 'callback_data' => 'submit_order:' . $row->id . ':' . $denom_id . ':' . $provider_id . ':' . $game_id,
             ];
         })->toArray();
-
-        $provider = Provider::where('id', $provider_id)->first();
-
-        if (! $provider) {
-            return $this->answerCallbackQuery($data['id'], 'Data provider dari denom tidak ditemukan');
-        }
 
         $game = Game::where('id', $game_id)->first();
 
@@ -216,6 +237,8 @@ class HandleCallback extends Controller
 
     private function submitOrder(string $callbackData, array $data, $user = null, $config = null)
     {
+        $this->cleanExpiredStockReservations();
+
         $explode     = explode(':', $callbackData);
         $payment_id  = $explode[1] ?? null;
         $denom_id    = $explode[2] ?? null;
@@ -247,6 +270,13 @@ class HandleCallback extends Controller
 
         if (! $denom) {
             return $this->answerCallbackQuery($data['id'] ?? null, 'Denom tidak tersedia atau tidak aktif', true);
+        }
+
+        if ($provider->type_api == 0) {
+            $stockCount = Stock::where('denom_id', $denom->id)->where('status', 'ready')->count();
+            if ($stockCount <= 0) {
+                return $this->answerCallbackQuery($data['id'] ?? null, '❌ Maaf, stok produk ini sedang kosong.', true);
+            }
         }
 
         $this->answerCallbackQuery($data['id'], 'Sedang memproses...');
@@ -307,6 +337,27 @@ class HandleCallback extends Controller
                 if (! $payment->instruksi) {
                     $detail['instruksi'] = $create['data']['tutorial_pembayaran'] ?? null;
                 }
+            } else if ($providerPayment === 'pakasir' && $config->payments['pakasir']['status'] ?? false) {
+                $create = (new Pakasir())->createTransaction($invoice_id, (int) $total_price, $payment->code);
+
+                if (! isset($create['success']) || ! $create['success']) {
+                    DB::rollBack();
+                    $this->answerCallbackQuery($data['id'] ?? null, 'Gagal membuat invoice', true);
+                    return json_encode([
+                        'status'  => false,
+                        'message' => $create['msg'] ?? 'Gagal membuat invoice',
+                    ]);
+                }
+
+                $detail['type'] = 'pakasir';
+
+                if (strtolower($create['payment']['payment_method'] ?? '') === 'qris') {
+                    $detail['qr_url']           = 'https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=' . urlencode($create['payment']['payment_number']);
+                    $detail['nomor_pembayaran'] = null;
+                } else {
+                    $detail['virtual_account']  = $create['payment']['payment_number'] ?? null;
+                    $detail['nomor_pembayaran'] = $create['payment']['payment_number'] ?? null;
+                }
             }
 
             $history = History::create([
@@ -333,6 +384,23 @@ class HandleCallback extends Controller
                 'process_status' => 'pending',
                 'expire_at'      => Carbon::now()->addMinutes((int) $config->order['exp_order']),
             ]);
+
+            if ($provider->type_api == 0) {
+                $stock = Stock::where('denom_id', $denom->id)
+                    ->where('status', 'ready')
+                    ->lockForUpdate()
+                    ->first();
+
+                if (! $stock) {
+                    DB::rollBack();
+                    return $this->answerCallbackQuery($data['id'] ?? null, '❌ Maaf, stok produk ini baru saja habis.', true);
+                }
+
+                $stock->update([
+                    'status'          => 'processing',
+                    'lock_invoice_id' => $invoice_id,
+                ]);
+            }
 
             DB::commit();
 
@@ -476,6 +544,13 @@ class HandleCallback extends Controller
         $history->payment_status = 'failed';
         $history->process_status = 'failed';
         $history->save();
+
+        Stock::where('lock_invoice_id', $history->invoice_id)
+            ->where('status', 'processing')
+            ->update([
+                'status'          => 'ready',
+                'lock_invoice_id' => null,
+            ]);
 
         $this->answerCallbackQuery($data['id'] ?? null, '✅ Pesanan berhasil dibatalkan');
 
@@ -671,6 +746,16 @@ class HandleCallback extends Controller
         ];
 
         return editMessageOrCaption($message, $caption, $keyboard);
+    }
+
+    private function handleDoResetLicense(string $callbackData, array $data, $user = null, $config = null)
+    {
+        $explode     = explode(':', $callbackData);
+        $provider_id = $explode[1] ?? null;
+        $provider    = Provider::where('id', $provider_id)->first();
+        if (! $provider) {
+            return $this->answerCallbackQuery($data['id'] ?? null, 'Data provider tidak ditemukan');
+        }
     }
 
     private function selectResetLicenseProvider(string $callbackData, array $data, $user = null, $config = null)
@@ -902,12 +987,10 @@ class HandleCallback extends Controller
             if (! $template) {
                 $template = "<b>✅ PEMBELIAN BERHASIL</b>\n\n🧾 <b>ID Invoice:</b> <code>{invoice_id}</code>\n🎮 <b>Game:</b> {game}\n🏢 <b>Provider:</b> {provider}\n💎 <b>Masa Aktif:</b> {denom}\n💰 <b>Harga:</b> {price}\n\n🔑 <b>Keterangan / Lisensi:</b>\n{notes}\n\n📖 <b>Tutorial:</b>\n{tutorial}";
             }
-
-            // Fetch download data from downloads table
             $downloadLinks = [];
             $tutorialText  = '';
 
-            $downloadObj = \App\Models\Download::where('game_id', $history->product['game']['id'] ?? 0)
+            $downloadObj = Download::where('game_id', $history->product['game']['id'] ?? 0)
                 ->where('provider_id', $history->product['provider']['id'] ?? 0)
                 ->where('status', 'active')
                 ->first();
@@ -918,7 +1001,6 @@ class HandleCallback extends Controller
             }
 
             $notesContent = $history->notes['content'] ?? '';
-            // Formulate download buttons
             if (! empty($downloadLinks)) {
                 foreach ($downloadLinks as $linkObj) {
                     $titleVal = $linkObj['title'] ?? 'Download';
@@ -937,8 +1019,6 @@ class HandleCallback extends Controller
                     }
                 }
             }
-
-            // Formulate tutorial text
             if (empty($tutorialText)) {
                 $tutorialText = $history->notes['tutorial'] ?? '';
             }
@@ -950,7 +1030,7 @@ class HandleCallback extends Controller
                 '{denom}'      => $history->product['denom']['name'] ?? '-',
                 '{price}'      => 'Rp ' . number_format($history->price, 0, ',', '.'),
                 '{notes}'      => $notesContent,
-                '{download}'   => '', // Handled as buttons now
+                '{download}'   => '',
                 '{tutorial}'   => $tutorialText ?: '-',
             ];
 
@@ -1089,17 +1169,30 @@ class HandleCallback extends Controller
                 return sendMessage(['chat_id' => $chatID, 'text' => 'Provider tidak aktif / fitur license tidak tersedia', 'mode' => 'html']);
             }
 
+            $user->session = null;
+            $user->save();
+
             if ($provider->type_api == '1') {
                 $api    = new Apiv1();
-                $data   = ['url' => $provider->url['reset'], 'license' => $message, 'action' => 'reset', 'api_key' => $provider->api_key];
+                $data   = ['url' => $provider->url['reset'] ?? '', 'license' => $message, 'action' => 'reset', 'api_key' => $provider->api_key];
                 $result = $api->reset($data);
                 if (isset($result['status'])) {
                     if ($result['status'] == false) {
-                        return sendMessage(['chat_id', $chatID, 'text' => 'Gagal mereset license']);
+                        $msg = $result['message'] ?? 'Gagal mereset license.';
+                        return sendMessage(['chat_id' => $chatID, 'text' => $msg]);
                     }
-                    return sendMessage(['chat_id', $chatID, 'text' => 'Berhasil mereset license: ' . $message]);
+                    $keyboard = [
+                        [
+                            ['text' => '🏠 Menu Utama', 'callback_data' => 'menu_start'],
+                        ],
+                    ];
+                    return sendMessage([
+                        'chat_id'  => $chatID,
+                        'text'     => '✅ Lisensi berhasil direset',
+                        'keyboard' => $keyboard,
+                    ]);
                 } else {
-                    return sendMessage(['chat_id', $chatID, 'text' => 'Gagal mereset license']);
+                    return sendMessage(['chat_id' => $chatID, 'text' => 'Gagal mereset license.']);
                 }
             } else if ($provider->type_api == '2') {
                 $api    = new Apiv2();
@@ -1107,15 +1200,64 @@ class HandleCallback extends Controller
                 $result = $api->resetlicense($data);
                 if (isset($result['success'])) {
                     if ($result['success'] == false) {
-                        return sendMessage(['chat_id', $chatID, 'text' => 'Gagal mereset license']);
+                        $msg = $result['message'] ?? 'Gagal mereset license.';
+                        return sendMessage(['chat_id' => $chatID, 'text' => $msg]);
                     }
-                    return sendMessage(['chat_id', $chatID, 'text' => 'Berhasil mereset license: ' . $message]);
+                    $keyboard = [
+                        [
+                            ['text' => '🏠 Menu Utama', 'callback_data' => 'menu_start'],
+                        ],
+                    ];
+                    return sendMessage([
+                        'chat_id'  => $chatID,
+                        'text'     => '✅ Lisensi berhasil direset',
+                        'keyboard' => $keyboard,
+                    ]);
                 } else {
-                    return sendMessage(['chat_id', $chatID, 'text' => 'Gagal mereset license']);
+                    return sendMessage(['chat_id' => $chatID, 'text' => 'Gagal mereset license.']);
+                }
+            } else if ($provider->type_api == '3') {
+                $api    = new Apiv3();
+                $data   = ['url' => $provider->url, 'user_key' => $message, 'api_key' => $provider->api_key];
+                $result = $api->reset($data);
+                if (isset($result['status'])) {
+                    if ($result['status'] !== 'success') {
+                        $msg = $result['message'] ?? 'Gagal mereset license.';
+                        return sendMessage(['chat_id' => $chatID, 'text' => $msg]);
+                    }
+                    $keyboard = [
+                        [
+                            ['text' => '🏠 Menu Utama', 'callback_data' => 'menu_start'],
+                        ],
+                    ];
+                    return sendMessage([
+                        'chat_id'  => $chatID,
+                        'text'     => '✅ Lisensi berhasil direset',
+                        'keyboard' => $keyboard,
+                    ]);
+                } else {
+                    return sendMessage(['chat_id' => $chatID, 'text' => 'Gagal mereset license.']);
                 }
             } else {
                 return response()->json(['status' => false, 'message' => 'Fitur reset license tidak diaktifkan']);
             }
+        }
+    }
+
+    private function cleanExpiredStockReservations()
+    {
+        $expiredInvoices = \App\Models\History::where('payment_status', 'pending')
+            ->where('expire_at', '<', \Carbon\Carbon::now())
+            ->pluck('invoice_id')
+            ->toArray();
+
+        if (! empty($expiredInvoices)) {
+            Stock::whereIn('lock_invoice_id', $expiredInvoices)
+                ->where('status', 'processing')
+                ->update([
+                    'status'          => 'ready',
+                    'lock_invoice_id' => null,
+                ]);
         }
     }
 }

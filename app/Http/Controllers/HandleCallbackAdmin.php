@@ -1,6 +1,9 @@
 <?php
+
 namespace App\Http\Controllers;
 
+use App\Libraries\Apiv1;
+use App\Libraries\Apiv2;
 use App\Models\Config;
 use App\Models\Denom;
 use App\Models\Download;
@@ -8,6 +11,8 @@ use App\Models\Game;
 use App\Models\History;
 use App\Models\Payment;
 use App\Models\Provider;
+use App\Models\Stock;
+
 use App\Models\User;
 use Exception;
 
@@ -22,8 +27,13 @@ class HandleCallbackAdmin extends Controller
             $callbackData = $data['data'];
 
             if ($user && str_starts_with($user->session, 'admin_')) {
-                $user->session = null;
-                $user->save();
+                if (
+                    !str_starts_with($callbackData, 'menu_admin:provider_create_type') &&
+                    !str_starts_with($callbackData, 'menu_admin:provider_create_reset')
+                ) {
+                    $user->session = null;
+                    $user->save();
+                }
             }
 
             if (! $user || $user->role !== 'admin') {
@@ -34,14 +44,17 @@ class HandleCallbackAdmin extends Controller
                 $callbackData === 'menu_admin'                                         => $this->handleButtonMenu($data, $user, $config),
                 $callbackData === 'menu_admin:config'                                  => $this->handleConfigMenu($data, $user, $config),
                 $callbackData === 'menu_admin:config:order'                            => $this->handleConfigOrder($data, $user, $config),
+                $callbackData === 'menu_admin:config:order:custom_notes'               => $this->handleConfigOrderCustomNotes($data, $user, $config),
                 $callbackData === 'menu_admin:config:bot'                              => $this->handleConfigBot($data, $user, $config),
                 $callbackData === 'menu_admin:config:payments'                         => $this->handleConfigPayments($data, $user, $config),
+                str_starts_with($callbackData, 'menu_admin:config:payments:detail:')   => $this->handleConfigPaymentsDetail($callbackData, $data, $user, $config),
+                str_starts_with($callbackData, 'menu_admin:config:payments:toggle:')   => $this->handleConfigPaymentsToggle($callbackData, $data, $user, $config),
+                str_starts_with($callbackData, 'menu_admin:config:payments:edit:')     => $this->handleConfigPaymentsEditPrompt($callbackData, $data, $user, $config),
                 $callbackData === 'menu_admin:config:captions'                         => $this->handleConfigCaptions($data, $user, $config),
                 $callbackData === 'menu_admin:config:captions:orders'                  => $this->handleCaptionsList('orders', $data, $user, $config),
                 $callbackData === 'menu_admin:config:captions:others'                  => $this->handleCaptionsList('others_button', $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:view_caption:')             => $this->handleViewCaption($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:edit_caption:')             => $this->handleEditCaptionPrompt($callbackData, $data, $user, $config),
-                $callbackData === 'menu_admin:toggle:wijayapay'                        => $this->handleTogglePayment($data, $user, $config),
 
                 $callbackData === 'menu_admin:game'                                    => $this->handleGamesList($data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:game_detail:')              => $this->handleGameDetail($callbackData, $data, $user, $config),
@@ -56,6 +69,7 @@ class HandleCallbackAdmin extends Controller
 
                 $callbackData === 'menu_admin:provider'                                => $this->handleProvidersList($data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:provider_detail:')          => $this->handleProviderDetail($callbackData, $data, $user, $config),
+                str_starts_with($callbackData, 'menu_admin:provider_stock:')           => $this->handleProviderStockList($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:provider_delete:')          => $this->handleProviderDeleteConfirm($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:provider_destroy:')         => $this->handleProviderDestroy($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:provider_toggle:')          => $this->handleProviderToggle($callbackData, $data, $user, $config),
@@ -67,6 +81,8 @@ class HandleCallbackAdmin extends Controller
                 str_starts_with($callbackData, 'menu_admin:provider_custom_data:')     => $this->handleProviderCustomDataList($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:provider_cd_add_game:')     => $this->handleProviderCDAddGame($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:provider_cd_add_key:')      => $this->handleProviderCDAddKey($callbackData, $data, $user, $config),
+                str_starts_with($callbackData, 'menu_admin:pr_cd_fetch:')              => $this->handleProviderCDFetchProvider($callbackData, $data, $user, $config),
+                str_starts_with($callbackData, 'menu_admin:pr_cd_sf:')                 => $this->handleProviderCDSaveFetched($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:provider_cd_prompt_val:')   => $this->handleProviderCDPromptVal($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:provider_cd_delete:')       => $this->handleProviderCDDelete($callbackData, $data, $user, $config),
 
@@ -81,6 +97,8 @@ class HandleCallbackAdmin extends Controller
                 str_starts_with($callbackData, 'menu_admin:denom_create:')             => $this->handleDenomCreatePrompt($callbackData, $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:denom_edit:')               => $this->handleDenomEditPrompt($callbackData, $data, $user, $config),
 
+                // Stock Management Callbacks
+                str_starts_with($callbackData, 'menu_admin:stock:')                    => $this->handleStockCallback($callbackData, $data, $user, $config),
                 // History CRUD Callbacks
                 $callbackData === 'menu_admin:history'                                 => $this->handleHistoryList('menu_admin:history_list:all:1', $data, $user, $config),
                 str_starts_with($callbackData, 'menu_admin:history_list:')             => $this->handleHistoryList($callbackData, $data, $user, $config),
@@ -228,7 +246,34 @@ class HandleCallbackAdmin extends Controller
                 ['text' => '📏 Edit Random Length', 'callback_data' => 'menu_admin:edit:order:length_random_order'],
             ],
             [
+                ['text' => '📝 Kelola Custom Notes', 'callback_data' => 'menu_admin:config:order:custom_notes'],
+            ],
+            [
                 ['text' => '⬅️ Kembali', 'callback_data' => 'menu_admin:config'],
+            ],
+        ];
+
+        return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
+    }
+
+    private function handleConfigOrderCustomNotes(array $data, $user = null, $config = null)
+    {
+        $order       = $config->order ?? [];
+        $customNotes = $order['custom_notes'] ?? [];
+        $successNote = $customNotes['success'] ?? 'Belum diatur';
+
+        $caption = "📝 <b>Pengaturan Custom Notes</b>\n\n" .
+            "Berikut adalah custom notes yang tersedia saat ini:\n\n" .
+            "• <b>Custom Notes Success:</b>\n" .
+            "<pre>" . htmlspecialchars($successNote, ENT_QUOTES, 'UTF-8') . "</pre>\n\n" .
+            "Pilih tombol di bawah untuk mengedit catatan tersebut:";
+
+        $keyboard = [
+            [
+                ['text' => '✍️ Edit Success Note', 'callback_data' => 'menu_admin:edit:order:custom_notes:success'],
+            ],
+            [
+                ['text' => '⬅️ Kembali ke Pengaturan Pesanan', 'callback_data' => 'menu_admin:config:order'],
             ],
         ];
 
@@ -264,55 +309,139 @@ class HandleCallbackAdmin extends Controller
 
     private function handleConfigPayments(array $data, $user = null, $config = null)
     {
-        $payments     = $config->payments ?? [];
-        $wijayapay    = $payments['wijayapay'] ?? [];
-        $status       = $wijayapay['status'] ?? false;
-        $apiKey       = $wijayapay['api_key'] ?? '-';
-        $codeMerchant = $wijayapay['code_merchant'] ?? '-';
+        $payments = $config->payments ?? [];
 
-        $statusBadge = $status ? '🟢 Aktif' : '🔴 Nonaktif';
-        $toggleText  = $status ? '🔌 Matikan' : '🔌 Aktifkan';
+        $caption = "💳 <b>Pengaturan Payment Gateways</b>\n\n" .
+            "Berikut adalah daftar payment gateway yang terdaftar:\n\n";
 
-        $caption = "VIP <b>Pengaturan Payment Gateway</b>\n\n" .
-            "Berikut adalah detail integrasi pembayaran saat ini:\n\n" .
-            "<b>Wijayapay:</b>\n" .
-            "• <b>Status:</b> {$statusBadge}\n" .
-            "• <b>API Key:</b> <code>{$apiKey}</code>\n" .
-            "• <b>Code Merchant:</b> <code>{$codeMerchant}</code>\n\n" .
-            "Silakan pilih tombol di bawah untuk mengubah:";
+        $buttons = [];
+        foreach ($payments as $gateway => $settings) {
+            $statusEmoji = ($settings['status'] ?? false) ? '🟢' : '🔴';
+            $displayName = ucfirst($gateway);
 
-        $keyboard = [
-            [
-                ['text' => "{$toggleText} Wijayapay", 'callback_data' => 'menu_admin:toggle:wijayapay'],
-            ],
-            [
-                ['text' => '🔑 Edit API Key', 'callback_data' => 'menu_admin:edit:payments:api_key'],
-                ['text' => '🏢 Edit Code Merchant', 'callback_data' => 'menu_admin:edit:payments:code_merchant'],
-            ],
-            [
-                ['text' => '⬅️ Kembali', 'callback_data' => 'menu_admin:config'],
-            ],
+            $caption .= "• <b>{$displayName}:</b> " . (($settings['status'] ?? false) ? 'Aktif' : 'Nonaktif') . "\n";
+
+            $buttons[] = [
+                'text' => "⚙️ {$displayName} [{$statusEmoji}]",
+                'callback_data' => "menu_admin:config:payments:detail:{$gateway}",
+            ];
+        }
+
+        $caption .= "\nSilakan pilih salah satu payment gateway untuk mengelola konfigurasi detailnya:";
+
+        $keyboard   = array_chunk($buttons, 2);
+        $keyboard[] = [
+            ['text' => '⬅️ Kembali', 'callback_data' => 'menu_admin:config'],
         ];
 
         return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
     }
 
-    private function handleTogglePayment(array $data, $user = null, $config = null)
+    private function handleConfigPaymentsDetail(string $callbackData, array $data, $user = null, $config = null)
     {
-        $payments              = $config->payments ?? [];
-        $wijayapay             = $payments['wijayapay'] ?? [];
-        $wijayapay['status']   = ! ($wijayapay['status'] ?? false);
-        $payments['wijayapay'] = $wijayapay;
+        $parts   = explode(':', $callbackData);
+        $gateway = $parts[4] ?? '';
 
-        $config->payments = $payments;
+        $payments = $config->payments ?? [];
+        if (! isset($payments[$gateway])) {
+            if (isset($data['id'])) {
+                $this->answerCallbackQuery($data['id'], 'Payment gateway tidak ditemukan.');
+            }
+            return;
+        }
+
+        $settings    = $payments[$gateway];
+        $status      = $settings['status'] ?? false;
+        $statusBadge = $status ? '🟢' : '🔴';
+        $toggleText  = $status ? '🔌 Nonaktifkan' : '🔌 Aktifkan';
+
+        $caption = "💳 <b>Detail Payment Gateway: " . ucfirst($gateway) . "</b>\n\n" .
+            "• <b>Status:</b> " . ($status ? '🟢 Aktif' : '🔴 Nonaktif') . "\n";
+
+        $editButtons = [];
+        foreach ($settings as $key => $value) {
+            if ($key === 'status') {
+                continue;
+            }
+            $labelVal  = (is_bool($value) ? ($value ? 'true' : 'false') : $value);
+            $caption  .= "• <b>" . str_replace('_', ' ', ucfirst($key)) . ":</b> <code>" . htmlspecialchars($labelVal ?? '-', ENT_QUOTES, 'UTF-8') . "</code>\n";
+
+            $editButtons[] = [
+                'text'          => '✍️ Edit ' . str_replace('_', ' ', ucfirst($key)),
+                'callback_data' => "menu_admin:config:payments:edit:{$gateway}:{$key}",
+            ];
+        }
+
+        $keyboard   = [];
+        $keyboard[] = [
+            ['text' => $toggleText, 'callback_data' => "menu_admin:config:payments:toggle:{$gateway}"],
+        ];
+
+        $chunkedEdit = array_chunk($editButtons, 2);
+        foreach ($chunkedEdit as $row) {
+            $keyboard[] = $row;
+        }
+
+        $keyboard[] = [
+            ['text' => '⬅️ Kembali ke Daftar', 'callback_data' => 'menu_admin:config:payments'],
+        ];
+
+        return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
+    }
+
+    private function handleConfigPaymentsToggle(string $callbackData, array $data, $user = null, $config = null)
+    {
+        $parts   = explode(':', $callbackData);
+        $gateway = $parts[4] ?? '';
+
+        $payments = $config->payments ?? [];
+        if (! isset($payments[$gateway])) {
+            if (isset($data['id'])) {
+                $this->answerCallbackQuery($data['id'], 'Payment gateway tidak ditemukan.');
+            }
+            return;
+        }
+
+        $payments[$gateway]['status'] = ! ($payments[$gateway]['status'] ?? false);
+        $config->payments             = $payments;
         $config->save();
 
         if (isset($data['id'])) {
-            $statusStr = $wijayapay['status'] ? 'diaktifkan' : 'dinonaktifkan';
-            $this->answerCallbackQuery($data['id'], "✅ Wijayapay berhasil {$statusStr}!");
+            $statusStr = $payments[$gateway]['status'] ? 'diaktifkan' : 'dinonaktifkan';
+            $this->answerCallbackQuery($data['id'], "✅ " . ucfirst($gateway) . " berhasil {$statusStr}!");
         }
 
-        return $this->handleConfigPayments($data, $user, $config);
+        return $this->handleConfigPaymentsDetail($callbackData, $data, $user, $config);
+    }
+
+    private function handleConfigPaymentsEditPrompt(string $callbackData, array $data, $user = null, $config = null)
+    {
+        $parts   = explode(':', $callbackData);
+        $gateway = $parts[4] ?? '';
+        $key     = $parts[5] ?? '';
+
+        $payments = $config->payments ?? [];
+        if (! isset($payments[$gateway][$key])) {
+            if (isset($data['id'])) {
+                $this->answerCallbackQuery($data['id'], 'Key tidak ditemukan.');
+            }
+            return;
+        }
+
+        $user->session = "admin_edit:config:payments:{$gateway}:{$key}";
+        $user->save();
+
+        $label  = ucfirst($gateway) . ' ' . str_replace('_', ' ', ucfirst($key));
+        $prompt = "✍️ Silakan kirimkan nilai baru untuk <b>{$label}</b> di chat ini.\n\n" .
+            "⚠️ <i>Klik tombol Batal di bawah untuk membatalkan perubahan.</i>";
+
+        $keyboard = [
+            [
+                ['text' => '❌ Batal', 'callback_data' => "menu_admin:config:payments:detail:{$gateway}"],
+            ],
+        ];
+
+        return editMessageOrCaption($data['message'] ?? [], $prompt, $keyboard);
     }
 
     private function handleConfigCaptions(array $data, $user = null, $config = null)
@@ -389,10 +518,10 @@ class HandleCallbackAdmin extends Controller
         $content  = $item['content'] ?? 'Tidak diatur';
 
         $captionText = "🔍 <b>Detail Caption</b>\n\n" .
-        "• <b>Key:</b> <code>{$key}</code>\n" .
-        "• <b>Kategori:</b> <code>{$type}</code>\n\n" .
-        "<b>Isi Caption Saat Ini:</b>\n" .
-        "<pre>" . htmlspecialchars($content, ENT_QUOTES, 'UTF-8') . "</pre>\n\n" .
+            "• <b>Key:</b> <code>{$key}</code>\n" .
+            "• <b>Kategori:</b> <code>{$type}</code>\n\n" .
+            "<b>Isi Caption Saat Ini:</b>\n" .
+            "<pre>" . htmlspecialchars($content, ENT_QUOTES, 'UTF-8') . "</pre>\n\n" .
             "Silakan klik tombol di bawah untuk mengedit caption ini:";
 
         $keyboard = [
@@ -412,12 +541,17 @@ class HandleCallbackAdmin extends Controller
         $parts    = explode(':', $callbackData);
         $category = $parts[2] ?? '';
         $field    = $parts[3] ?? '';
+        $subfield = $parts[4] ?? '';
 
         // Set session
-        $user->session = "admin_edit:config:{$category}:{$field}";
+        $session = "admin_edit:config:{$category}:{$field}";
+        if ($subfield !== '') {
+            $session .= ":{$subfield}";
+        }
+        $user->session = $session;
         $user->save();
 
-        $fieldNameMap = [
+        $fieldNameMap  = [
             'string'              => 'Karakter Acak Invoice (String)',
             'exp_order'           => 'Masa Berlaku Invoice (menit)',
             'prefix_order'        => 'Prefix ID Invoice',
@@ -428,6 +562,7 @@ class HandleCallbackAdmin extends Controller
             'contact'             => 'Link Kontak Admin',
             'api_key'             => 'API Key Wijayapay',
             'code_merchant'       => 'Code Merchant Wijayapay',
+            'custom_notes'        => 'Custom Notes Success',
         ];
 
         $label  = $fieldNameMap[$field] ?? $field;
@@ -437,9 +572,14 @@ class HandleCallbackAdmin extends Controller
         }
         $prompt .= "\n\n⚠️ <i>Klik tombol Batal di bawah untuk membatalkan perubahan.</i>";
 
+        $backCallback = "menu_admin:config:{$category}";
+        if ($field === 'custom_notes') {
+            $backCallback = "menu_admin:config:{$category}:custom_notes";
+        }
+
         $keyboard = [
             [
-                ['text' => '❌ Batal', 'callback_data' => "menu_admin:config:{$category}"],
+                ['text' => '❌ Batal', 'callback_data' => $backCallback],
             ],
         ];
 
@@ -805,9 +945,14 @@ class HandleCallbackAdmin extends Controller
 
         $urlInfo = '';
         $urls    = $provider->url ?? [];
-        if ($provider->type_api == 1) {
+        if ($provider->type_api == 0) {
+            $urlInfo .= "• (Sistem Stok tidak membutuhkan URL Endpoints)\n";
+        } elseif ($provider->type_api == 1) {
             $urlInfo .= "• Register URL: <code>" . ($urls['register'] ?? '-') . "</code>\n";
             $urlInfo .= "• Get Game URL: <code>" . ($urls['get_game'] ?? '-') . "</code>\n";
+            $urlInfo .= "• Reset Key URL: <code>" . ($urls['reset'] ?? '-') . "</code>\n";
+        } elseif ($provider->type_api == 3) {
+            $urlInfo .= "• Register URL: <code>" . ($urls['register'] ?? '-') . "</code>\n";
             $urlInfo .= "• Reset Key URL: <code>" . ($urls['reset'] ?? '-') . "</code>\n";
         } else {
             $urlInfo .= "• Register URL: <code>" . ($urls['register'] ?? '-') . "</code>\n";
@@ -820,7 +965,7 @@ class HandleCallbackAdmin extends Controller
         $caption = "🏢 <b>Detail Provider</b>\n\n" .
             "• <b>Nama Provider:</b> {$provider->name}\n" .
             "• <b>API Key:</b> <code>{$provider->api_key}</code>\n" .
-            "• <b>Type API:</b> {$provider->type_api}\n" .
+            "• <b>Type API:</b> " . ($provider->type_api == 0 ? '0 (Stok)' : $provider->type_api) . "\n" .
             "• <b>Reset License:</b> {$resetBadge}\n" .
             "• <b>Status:</b> {$statusBadge}\n\n" .
             "<b>Endpoints URL:</b>\n{$urlInfo}";
@@ -842,9 +987,16 @@ class HandleCallbackAdmin extends Controller
                 ['text' => '🛠️ Kelola Custom Data', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"],
                 ['text' => '🗑️ Hapus Provider', 'callback_data' => "menu_admin:provider_delete:{$providerId}"],
             ],
-            [
-                ['text' => '⬅️ Kembali ke Daftar', 'callback_data' => 'menu_admin:provider'],
-            ],
+        ];
+
+        if ($provider->type_api == 0) {
+            $keyboard[] = [
+                ['text' => '📦 Kelola Stok', 'callback_data' => "menu_admin:provider_stock:{$providerId}"],
+            ];
+        }
+
+        $keyboard[] = [
+            ['text' => '⬅️ Kembali ke Daftar', 'callback_data' => 'menu_admin:provider'],
         ];
 
         return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
@@ -951,12 +1103,19 @@ class HandleCallbackAdmin extends Controller
         }
 
         $buttons = [];
-        if ($provider->type_api == 1) {
+        if ($provider->type_api == 0) {
+            // Sistem stok tidak memerlukan URL Endpoints
+        } elseif ($provider->type_api == 1) {
             $buttons[] = [
                 ['text' => 'Register URL', 'callback_data' => "menu_admin:provider_edit:url_register:{$providerId}"],
                 ['text' => 'Get Game URL', 'callback_data' => "menu_admin:provider_edit:url_get_game:{$providerId}"],
             ];
             $buttons[] = [
+                ['text' => 'Reset Key URL', 'callback_data' => "menu_admin:provider_edit:url_reset:{$providerId}"],
+            ];
+        } elseif ($provider->type_api == 3) {
+            $buttons[] = [
+                ['text' => 'Register URL', 'callback_data' => "menu_admin:provider_edit:url_register:{$providerId}"],
                 ['text' => 'Reset Key URL', 'callback_data' => "menu_admin:provider_edit:url_reset:{$providerId}"],
             ];
         } else {
@@ -979,7 +1138,7 @@ class HandleCallbackAdmin extends Controller
 
         return editMessageOrCaption(
             $data['message'] ?? [],
-            "🔗 <b>Edit Endpoints URL - {$provider->name}</b> (Type API: {$provider->type_api})\n\nSilakan pilih URL endpoint yang ingin diubah:",
+            "🔗 <b>Edit Endpoints URL - {$provider->name}</b> (Type API: " . ($provider->type_api == 0 ? '0 (Stok)' : $provider->type_api) . ")\n\n" . ($provider->type_api == 0 ? 'Sistem stok tidak memerlukan URL Endpoints.' : 'Silakan pilih URL endpoint yang ingin diubah:'),
             $buttons
         );
     }
@@ -1003,18 +1162,20 @@ class HandleCallbackAdmin extends Controller
 
     private function handleProviderCreateTypeCallback(string $callbackData, array $data, $user = null, $config = null)
     {
-        $parts  = explode(':', $callbackData);
-        $type   = $parts[2] ?? '1';
-        $name   = urldecode($parts[3] ?? '');
-        $apiKey = urldecode($parts[4] ?? '');
+        $parts = explode(':', $callbackData);
+        $type  = $parts[2] ?? '1';
 
-        $user->session = "admin_create_provider:reset_license:{$name}:{$apiKey}:{$type}";
+        $sessionParts = explode(':', $user->session);
+        $name         = urldecode($sessionParts[2] ?? '');
+        $apiKey       = urldecode($sessionParts[3] ?? '');
+
+        $user->session = "admin_create_provider:reset_license:" . urlencode($name) . ":" . urlencode($apiKey) . ":{$type}";
         $user->save();
 
         $keyboard = [
             [
-                ['text' => '🟢 Enabled', 'callback_data' => "menu_admin:provider_create_reset:enabled:" . urlencode($name) . ":" . urlencode($apiKey) . ":{$type}"],
-                ['text' => '🔴 Disabled', 'callback_data' => "menu_admin:provider_create_reset:disabled:" . urlencode($name) . ":" . urlencode($apiKey) . ":{$type}"],
+                ['text' => '🟢 Enabled', 'callback_data' => "menu_admin:provider_create_reset:enabled"],
+                ['text' => '🔴 Disabled', 'callback_data' => "menu_admin:provider_create_reset:disabled"],
             ],
             [
                 ['text' => '❌ Batal', 'callback_data' => 'menu_admin:provider'],
@@ -1023,18 +1184,20 @@ class HandleCallbackAdmin extends Controller
 
         return editMessageOrCaption(
             $data['message'] ?? [],
-            "Nama Provider: <b>{$name}</b>\nType API: <b>{$type}</b>\n\n✍️ Silakan tentukan status <b>Reset License</b>:",
+            "Nama Provider: <b>" . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . "</b>\nType API: <b>{$type}</b>\n\n✍️ Silakan tentukan status <b>Reset License</b>:",
             $keyboard
         );
     }
 
     private function handleProviderCreateResetCallback(string $callbackData, array $data, $user = null, $config = null)
     {
-        $parts  = explode(':', $callbackData);
-        $reset  = $parts[2] ?? 'enabled';
-        $name   = urldecode($parts[3] ?? '');
-        $apiKey = urldecode($parts[4] ?? '');
-        $type   = intval($parts[5] ?? 1);
+        $parts = explode(':', $callbackData);
+        $reset = $parts[2] ?? 'enabled';
+
+        $sessionParts = explode(':', $user->session);
+        $name         = urldecode($sessionParts[2] ?? '');
+        $apiKey       = urldecode($sessionParts[3] ?? '');
+        $type         = intval($sessionParts[4] ?? 1);
 
         $provider = Provider::create([
             'name'          => $name,
@@ -1075,7 +1238,7 @@ class HandleCallbackAdmin extends Controller
         $fieldLabel = match ($field) {
             'name'          => 'Nama Provider',
             'api_key'       => 'API Key Provider',
-            'type_api'      => 'Type API (1 atau 2)',
+            'type_api'      => 'Type API (0, 1, 2, atau 3)',
             'reset_license' => 'Reset License (enabled atau disabled)',
             'url_register'  => 'Register URL Endpoint',
             'url_get_game'  => 'Get Game URL Endpoint',
@@ -1212,25 +1375,33 @@ class HandleCallbackAdmin extends Controller
 
         $caption = "➕ <b>Tambah Custom Data - {$provider->name}</b>\n\n" .
             "• <b>Game:</b> {$game->name}\n\n" .
-            "<b>Langkah 2/3:</b> Silakan pilih tipe key:\n\n";
+            "<b>Langkah 2/3:</b> Silakan pilih tipe key atau ambil otomatis dari provider:\n\n";
 
-        if ($provider->type_api == 1) {
-            $caption       .= "Pilih <code>c_gameid</code> jika ingin memetakan ID Game dari sistem ke provider.\n";
+        if ($provider->type_api == 1 || $provider->type_api == 3) {
+            $caption       .= "Pilih <code>c_cgame</code> jika ingin memetakan Kode Game (code) dari sistem ke provider.\n";
+            $selectedField  = 'c_cgame';
+            $keyboard       = [
+                [
+                    ['text' => 'c_cgame', 'callback_data' => "menu_admin:provider_cd_prompt_val:{$providerId}:{$gameId}:c_cgame"],
+                ],
+            ];
+            if ($provider->type_api == 1) {
+                $keyboard[] = [
+                    ['text' => 'Get c_cgame / c_gameid from provider', 'callback_data' => "menu_admin:pr_cd_fetch:{$providerId}:{$gameId}"],
+                ];
+            }
+            $keyboard[] = [
+                ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"],
+            ];
+        } else {
+            $caption       .= "Pilih <code>c_gameid</code> jika ingin memetakan ID Game (game_id) dari sistem ke provider.";
             $selectedField  = 'c_gameid';
             $keyboard       = [
                 [
                     ['text' => 'c_gameid', 'callback_data' => "menu_admin:provider_cd_prompt_val:{$providerId}:{$gameId}:c_gameid"],
                 ],
                 [
-                    ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"],
-                ],
-            ];
-        } else {
-            $caption       .= "Pilih <code>c_cgame</code> jika ingin memetakan Kode Game (code) dari sistem ke provider.";
-            $selectedField  = 'c_cgame';
-            $keyboard       = [
-                [
-                    ['text' => 'c_cgame', 'callback_data' => "menu_admin:provider_cd_prompt_val:{$providerId}:{$gameId}:c_cgame"],
+                    ['text' => 'Get c_cgame / c_gameid from provider', 'callback_data' => "menu_admin:pr_cd_fetch:{$providerId}:{$gameId}"],
                 ],
                 [
                     ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_custom_data:{$providerId}"],
@@ -1293,6 +1464,147 @@ class HandleCallbackAdmin extends Controller
                     $this->answerCallbackQuery($data['id'], '✅ Custom data berhasil dihapus.');
                 }
             }
+        }
+
+        return $this->handleProviderCustomDataList("menu_admin:provider_custom_data:{$providerId}", $data, $user, $config);
+    }
+
+    private function handleProviderCDFetchProvider(string $callbackData, array $data, $user = null, $config = null)
+    {
+        $parts      = explode(':', $callbackData);
+        $providerId = $parts[2] ?? null;
+        $gameId     = $parts[3] ?? null;
+
+        $provider = Provider::find($providerId);
+        $game     = Game::find($gameId);
+
+        if (! $provider || ! $game) {
+            if (isset($data['id'])) {
+                $this->answerCallbackQuery($data['id'], 'Data tidak ditemukan.');
+            }
+            return;
+        }
+
+        if (isset($data['id'])) {
+            $this->answerCallbackQuery($data['id'], 'Mengambil data dari provider...');
+        }
+
+        $list = [];
+        if ($provider->type_api == 1) {
+            $api     = new Apiv1();
+            $apiData = [
+                'url'     => $provider->url['get_game'] ?? '',
+                'api_key' => $provider->api_key,
+                'action'  => 'get_game',
+            ];
+            $response = $api->getGame($apiData);
+            if (isset($response['status']) && $response['status'] == true && ! empty($response['data'])) {
+                $list = $response['data'];
+            } else {
+                $list = [];
+            }
+        } elseif ($provider->type_api == 2) {
+            $api      = new Apiv2();
+            $response = $api->game_id($provider->api_key, $provider->url);
+            if (isset($response['success']) && $response['success'] == true && ! empty($response['data'])) {
+                $list = $response['data'];
+            } else {
+                $list = [];
+            }
+        }
+
+        if (empty($list)) {
+            if (isset($data['id'])) {
+                $this->answerCallbackQuery($data['id'], '⚠️ Gagal mengambil data game dari provider.', true);
+            }
+            return;
+        }
+
+        $caption = "➕ <b>Pilih Game dari Provider - {$provider->name}</b>\n\n" .
+            "Silakan pilih game dari provider di bawah ini untuk dipetakan ke game <b>{$game->name}</b>:";
+
+        $buttons = [];
+        if ($provider->type_api == 1) {
+            foreach ($list as $row) {
+                $code = $row['code'] ?? '';
+                $name = $row['game'] ?? '';
+                if ($code && $name) {
+                    $buttons[] = [
+                        'text' => "{$name} ({$code})",
+                        'callback_data' => "menu_admin:pr_cd_sf:{$providerId}:{$gameId}:c_cgame:{$code}",
+                    ];
+                }
+            }
+        } else {
+            foreach ($list as $row) {
+                $id   = $row['id'] ?? '';
+                $name = $row['nama'] ?? '';
+                if ($id && $name) {
+                    $buttons[] = [
+                        'text' => "{$name} (ID: {$id})",
+                        'callback_data' => "menu_admin:pr_cd_sf:{$providerId}:{$gameId}:c_gameid:{$id}",
+                    ];
+                }
+            }
+        }
+
+        $keyboard   = array_chunk($buttons, 2);
+        $keyboard[] = [
+            ['text' => '❌ Batal', 'callback_data' => "menu_admin:provider_cd_add_key:{$providerId}:{$gameId}"],
+        ];
+
+        return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
+    }
+
+    private function handleProviderCDSaveFetched(string $callbackData, array $data, $user = null, $config = null)
+    {
+        $parts      = explode(':', $callbackData);
+        $providerId = $parts[2] ?? null;
+        $gameId     = $parts[3] ?? null;
+        $key        = $parts[4] ?? null;
+        $value      = $parts[5] ?? null;
+
+        $provider = Provider::find($providerId);
+        $game     = Game::find($gameId);
+
+        if (! $provider || ! $game) {
+            if (isset($data['id'])) {
+                $this->answerCallbackQuery($data['id'], 'Data tidak ditemukan.');
+            }
+            return;
+        }
+
+        if ($key === 'c_gameid') {
+            if (is_numeric($value)) {
+                $value = intval($value);
+            }
+        }
+
+        $customData = $provider->custom_data ?? [];
+
+        $updated = false;
+        foreach ($customData as &$item) {
+            if (($item['game_id'] ?? null) == $gameId && ($item['key'] ?? null) === $key) {
+                $item['value'] = $value;
+                $updated       = true;
+                break;
+            }
+        }
+        unset($item);
+
+        if (! $updated) {
+            $customData[] = [
+                'key'     => $key,
+                'game_id' => intval($gameId),
+                'value'   => $value,
+            ];
+        }
+
+        $provider->custom_data = $customData;
+        $provider->save();
+
+        if (isset($data['id'])) {
+            $this->answerCallbackQuery($data['id'], '✅ Custom data berhasil disimpan.');
         }
 
         return $this->handleProviderCustomDataList("menu_admin:provider_custom_data:{$providerId}", $data, $user, $config);
@@ -1425,12 +1737,17 @@ class HandleCallbackAdmin extends Controller
         $statusBadge  = ($denom->status === 'active') ? '🟢 Aktif' : '🔴 Nonaktif';
 
         $caption = "🔍 <b>Detail Denom</b>\n\n" .
-        "• <b>Nama:</b> {$denom->name}\n" .
-        "• <b>Harga:</b> Rp " . number_format($denom->price, 0, ',', '.') . "\n" .
+            "• <b>Nama:</b> {$denom->name}\n" .
+            "• <b>Harga:</b> Rp " . number_format($denom->price, 0, ',', '.') . "\n" .
             "• <b>Durasi:</b> {$denom->duration} Hari\n" .
             "• <b>Status:</b> {$statusBadge}\n" .
             "• <b>Game:</b> {$gameName}\n" .
             "• <b>Provider:</b> {$providerName}";
+
+        if ($provider && $provider->type_api == 0) {
+            $readyCount = Stock::where('denom_id', $denomId)->where('status', 'ready')->count();
+            $caption .= "\n• <b>Stok Ready:</b> <b>{$readyCount} item</b>";
+        }
 
         $keyboard = [
             [
@@ -1441,12 +1758,19 @@ class HandleCallbackAdmin extends Controller
                 ['text' => '⏱️ Edit Durasi', 'callback_data' => "menu_admin:denom_edit:duration:{$denomId}"],
                 ['text' => '🔌 Toggle Status', 'callback_data' => "menu_admin:denom_toggle:{$denomId}"],
             ],
-            [
-                ['text' => '🗑️ Hapus Denom', 'callback_data' => "menu_admin:denom_delete:{$denomId}"],
-            ],
-            [
-                ['text' => '⬅️ Kembali ke Daftar', 'callback_data' => "menu_admin:denom_list:{$denom->game_id}:{$denom->provider_id}"],
-            ],
+        ];
+
+        if ($provider && $provider->type_api == 0) {
+            $keyboard[] = [
+                ['text' => '📦 Kelola Stok', 'callback_data' => "menu_admin:stock:manage:{$denomId}"],
+            ];
+        }
+
+        $keyboard[] = [
+            ['text' => '🗑️ Hapus Denom', 'callback_data' => "menu_admin:denom_delete:{$denomId}"],
+        ];
+        $keyboard[] = [
+            ['text' => '⬅️ Kembali ke Daftar', 'callback_data' => "menu_admin:denom_list:{$denom->game_id}:{$denom->provider_id}"],
         ];
 
         return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
@@ -1490,9 +1814,9 @@ class HandleCallbackAdmin extends Controller
         }
 
         $caption = "⚠️ <b>Konfirmasi Hapus Denom</b>\n\n" .
-        "Apakah Anda yakin ingin menghapus denom berikut?\n\n" .
-        "• <b>Nama:</b> {$denom->name}\n" .
-        "• <b>Harga:</b> Rp " . number_format($denom->price, 0, ',', '.') . "\n" .
+            "Apakah Anda yakin ingin menghapus denom berikut?\n\n" .
+            "• <b>Nama:</b> {$denom->name}\n" .
+            "• <b>Harga:</b> Rp " . number_format($denom->price, 0, ',', '.') . "\n" .
             "• <b>Durasi:</b> {$denom->duration} Hari\n\n" .
             "<i>Tindakan ini tidak dapat dibatalkan.</i>";
 
@@ -1530,6 +1854,251 @@ class HandleCallbackAdmin extends Controller
 
         $fakeCallback = "menu_admin:denom_list:{$gameId}:{$providerId}";
         return $this->handleDenomsList($fakeCallback, $data, $user, $config);
+    }
+
+    private function handleProviderStockList(string $callbackData, array $data, $user = null, $config = null)
+    {
+        $parts      = explode(':', $callbackData);
+        $providerId = $parts[2] ?? null;
+
+        $provider = Provider::find($providerId);
+        if (! $provider) return;
+
+        $denoms = Denom::where('provider_id', $providerId)->get();
+
+        $buttons = $denoms->map(function ($row) {
+            $game = Game::find($row->game_id);
+            $gameName = $game ? $game->name : 'Unknown Game';
+            $readyCount = Stock::where('denom_id', $row->id)->where('status', 'ready')->count();
+            return [
+                'text'          => "[{$gameName}] " . $row->name . " (Stok: {$readyCount})",
+                'callback_data' => "menu_admin:stock:manage:{$row->id}",
+            ];
+        })->toArray();
+
+        $keyboard = array_chunk($buttons, 1);
+        $keyboard[] = [
+            ['text' => '⬅️ Kembali ke Provider', 'callback_data' => "menu_admin:provider_detail:{$providerId}"],
+        ];
+
+        return editMessageOrCaption(
+            $data['message'] ?? [],
+            "📦 <b>Pilih Denom untuk Kelola Stok</b>\n\nProvider: <b>{$provider->name}</b>\n\nSilakan pilih denom di bawah untuk mengelola stoknya:",
+            $keyboard
+        );
+    }
+
+
+    private function handleStockCallback(string $callbackData, array $data, $user = null, $config = null)
+    {
+        $parts  = explode(':', $callbackData);
+        $action = $parts[2] ?? '';
+
+        if ($action === 'manage') {
+            $denomId = $parts[3] ?? null;
+            $denom   = Denom::find($denomId);
+            if (! $denom) return;
+
+            $readyCount      = Stock::where('denom_id', $denomId)->where('status', 'ready')->count();
+            $processingCount = Stock::where('denom_id', $denomId)->where('status', 'processing')->count();
+            $soldCount       = Stock::where('denom_id', $denomId)->where('status', 'sold')->count();
+            $inactiveCount   = Stock::where('denom_id', $denomId)->where('status', 'inactive')->count();
+
+            $game     = Game::find($denom->game_id);
+            $provider = Provider::find($denom->provider_id);
+
+            $caption = "📦 <b>Kelola Stok - {$denom->name}</b>\n\n" .
+                "🎮 <b>Game:</b> " . ($game->name ?? '-') . "\n" .
+                "🏢 <b>Provider:</b> " . ($provider->name ?? '-') . "\n\n" .
+                "📊 <b>Statistik Stok:</b>\n" .
+                "• Ready: <b>{$readyCount}</b>\n" .
+                "• Processing: <b>{$processingCount}</b>\n" .
+                "• Sold: <b>{$soldCount}</b>\n" .
+                "• Inactive: <b>{$inactiveCount}</b>\n\n" .
+                "Silakan pilih aksi di bawah ini:";
+
+            $keyboard = [
+                [
+                    ['text' => '➕ Tambah Stok', 'callback_data' => "menu_admin:stock:add_prompt:{$denomId}"],
+                    ['text' => '📋 List Stok Ready', 'callback_data' => "menu_admin:stock:list:{$denomId}:1"],
+                ],
+                [
+                    ['text' => '🗑️ Kosongkan Stok Ready', 'callback_data' => "menu_admin:stock:purge_confirm:{$denomId}"],
+                ],
+                [
+                    ['text' => '⬅️ Kembali ke Detail Denom', 'callback_data' => "menu_admin:denom_detail:{$denomId}"],
+                ],
+            ];
+
+            return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
+        }
+
+        if ($action === 'add_prompt') {
+            $denomId = $parts[3] ?? null;
+            $denom   = Denom::find($denomId);
+            if (! $denom) return;
+
+            $user->session = "admin_stock_add:{$denomId}";
+            $user->save();
+
+            $prompt = "✍️ <b>Tambah Stok - {$denom->name}</b>\n\n" .
+                "Silakan kirimkan lisensi key baru.\n" .
+                "Anda dapat mengirimkan beberapa lisensi key sekaligus dengan menuliskannya <b>satu key per baris</b>.\n\n" .
+                "Contoh:\n" .
+                "<code>LICENSE-KEY-1</code>\n" .
+                "<code>LICENSE-KEY-2</code>\n" .
+                "<code>LICENSE-KEY-3</code>\n\n" .
+                "⚠️ <i>Ketik /cancel atau cancel untuk membatalkan.</i>";
+
+            $keyboard = [
+                [
+                    ['text' => '❌ Batal', 'callback_data' => "menu_admin:stock:manage:{$denomId}"],
+                ],
+            ];
+
+            return editMessageOrCaption($data['message'] ?? [], $prompt, $keyboard);
+        }
+
+        if ($action === 'list') {
+            $denomId = $parts[3] ?? null;
+            $page    = intval($parts[4] ?? 1);
+            $denom   = Denom::find($denomId);
+            if (! $denom) return;
+
+            $query      = Stock::where('denom_id', $denomId)->where('status', 'ready')->orderBy('id', 'desc');
+            $limit      = 10;
+            $offset     = ($page - 1) * $limit;
+            $total      = $query->count();
+            $stocks     = $query->skip($offset)->take($limit)->get();
+            $totalPages = ceil($total / $limit);
+            if ($totalPages < 1) $totalPages = 1;
+
+            $listContent = '';
+            $numButtons  = [];
+            $index       = 1;
+
+            foreach ($stocks as $row) {
+                $listContent .= "<b>{$index}.</b> <code>{$row->license}</code>\n";
+                $numButtons[] = [
+                    'text'          => " 🗑️ {$index} ",
+                    'callback_data' => "menu_admin:stock:delete_confirm:{$row->id}",
+                ];
+                $index++;
+            }
+
+            if (empty($listContent)) {
+                $listContent = "<i>Tidak ada stok ready untuk produk ini.</i>\n\n";
+            }
+
+            $keyboard = [];
+            if (! empty($numButtons)) {
+                $keyboard = array_chunk($numButtons, 5);
+            }
+
+            // Pagination row
+            $paginationRow = [];
+            if ($page > 1) {
+                $paginationRow[] = [
+                    'text'          => '◀️ Prev',
+                    'callback_data' => "menu_admin:stock:list:{$denomId}:" . ($page - 1),
+                ];
+            }
+
+            $paginationRow[] = [
+                'text'          => "Hal {$page}/{$totalPages}",
+                'callback_data' => 'current_page',
+            ];
+
+            if ($page < $totalPages) {
+                $paginationRow[] = [
+                    'text'          => 'Next ▶️',
+                    'callback_data' => "menu_admin:stock:list:{$denomId}:" . ($page + 1),
+                ];
+            }
+            $keyboard[] = $paginationRow;
+
+            $keyboard[] = [
+                ['text' => '⬅️ Kembali ke Kelola Stok', 'callback_data' => "menu_admin:stock:manage:{$denomId}"],
+            ];
+
+            $caption = "📋 <b>Daftar Stok Ready - {$denom->name}</b> (Halaman {$page}/{$totalPages})\n" .
+                "• Total Stok Ready: <b>{$total}</b>\n\n" .
+                $listContent . "\n" .
+                "Pilih nomor bersimbol 🗑️ di bawah untuk menghapus lisensi key tersebut:";
+
+            return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
+        }
+
+        if ($action === 'delete_confirm') {
+            $stockId = $parts[3] ?? null;
+            $stock   = Stock::find($stockId);
+            if (! $stock) return;
+
+            $denom = Denom::find($stock->denom_id);
+
+            $caption = "⚠️ <b>Konfirmasi Hapus Lisensi</b>\n\n" .
+                "Apakah Anda yakin ingin menghapus lisensi berikut?\n" .
+                "• Produk: <b>" . ($denom->name ?? '-') . "</b>\n" .
+                "• Lisensi: <code>{$stock->license}</code>\n\n" .
+                "<i>Tindakan ini tidak dapat dibatalkan.</i>";
+
+            $keyboard = [
+                [
+                    ['text' => '🗑️ Ya, Hapus', 'callback_data' => "menu_admin:stock:destroy:{$stockId}"],
+                    ['text' => '❌ Batal', 'callback_data' => "menu_admin:stock:list:{$stock->denom_id}:1"],
+                ],
+            ];
+
+            return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
+        }
+
+        if ($action === 'destroy') {
+            $stockId = $parts[3] ?? null;
+            $stock   = Stock::find($stockId);
+            if ($stock) {
+                $denomId = $stock->denom_id;
+                $stock->delete();
+                if (isset($data['id'])) {
+                    $this->answerCallbackQuery($data['id'], '✅ Lisensi berhasil dihapus!');
+                }
+                return $this->handleStockCallback("menu_admin:stock:list:{$denomId}:1", $data, $user, $config);
+            }
+        }
+
+        if ($action === 'purge_confirm') {
+            $denomId = $parts[3] ?? null;
+            $denom   = Denom::find($denomId);
+            if (! $denom) return;
+
+            $readyCount = Stock::where('denom_id', $denomId)->where('status', 'ready')->count();
+
+            $caption = "⚠️ <b>Konfirmasi Kosongkan Stok Ready</b>\n\n" .
+                "Apakah Anda yakin ingin menghapus seluruh stok yang bertatus <b>ready</b> untuk produk berikut?\n" .
+                "• Produk: <b>{$denom->name}</b>\n" .
+                "• Jumlah Stok Akan Dihapus: <b>{$readyCount} item</b>\n\n" .
+                "<i>Tindakan ini tidak dapat dibatalkan!</i>";
+
+            $keyboard = [
+                [
+                    ['text' => '🔴 Ya, Kosongkan', 'callback_data' => "menu_admin:stock:purge:{$denomId}"],
+                    ['text' => '❌ Batal', 'callback_data' => "menu_admin:stock:manage:{$denomId}"],
+                ],
+            ];
+
+            return editMessageOrCaption($data['message'] ?? [], $caption, $keyboard);
+        }
+
+        if ($action === 'purge') {
+            $denomId = $parts[3] ?? null;
+            $denom   = Denom::find($denomId);
+            if ($denom) {
+                Stock::where('denom_id', $denomId)->where('status', 'ready')->delete();
+                if (isset($data['id'])) {
+                    $this->answerCallbackQuery($data['id'], '✅ Stok ready berhasil dikosongkan!');
+                }
+                return $this->handleStockCallback("menu_admin:stock:manage:{$denomId}", $data, $user, $config);
+            }
+        }
     }
 
     private function handleDenomCreatePrompt(string $callbackData, array $data, $user = null, $config = null)
@@ -1682,7 +2251,7 @@ class HandleCallbackAdmin extends Controller
         ];
 
         $title = "👥 <b>Kelola User</b> (Halaman {$page}/{$totalPages})\n" .
-        "• Filter: <b>" . strtoupper($filter) . "</b>\n" .
+            "• Filter: <b>" . strtoupper($filter) . "</b>\n" .
             "• Total Data: <b>{$total}</b>\n\n" .
             $listUsers .
             "Pilih nomor user di bawah ini untuk melihat detail/mengubah role:";
@@ -1944,7 +2513,7 @@ class HandleCallbackAdmin extends Controller
         ];
 
         $title = "📥 <b>Kelola Konfigurasi Download</b> (Halaman {$page}/{$totalPages})\n" .
-        "• Filter: <b>" . strtoupper($filter) . "</b>\n" .
+            "• Filter: <b>" . strtoupper($filter) . "</b>\n" .
             "• Total Data: <b>{$total}</b>\n\n" .
             $listDownloads .
             "Pilih nomor download di bawah ini untuk melihat detail/mengubah:";
@@ -2433,7 +3002,7 @@ class HandleCallbackAdmin extends Controller
         ];
 
         $title = "💳 <b>Kelola Metode Pembayaran</b> (Halaman {$page}/{$totalPages})\n" .
-        "• Filter: <b>" . strtoupper($filter) . "</b>\n" .
+            "• Filter: <b>" . strtoupper($filter) . "</b>\n" .
             "• Total Data: <b>{$total}</b>\n\n" .
             $listPayments .
             "Pilih nomor pembayaran di bawah ini untuk melihat detail/mengubah:";
@@ -2474,19 +3043,19 @@ class HandleCallbackAdmin extends Controller
         $instruksi   = $payment->instruksi ?: 'Tidak ada instruksi';
 
         $caption = "💳 <b>Detail Metode Pembayaran</b>\n\n" .
-        "• <b>Nama Payment:</b> {$payment->name}\n" .
-        "• <b>Kode Payment:</b> <code>{$payment->code}</code>\n" .
-        "• <b>Provider:</b> <code>{$payment->provider}</code>\n" .
-        "• <b>Fee Fixed:</b> {$feeFixed}\n" .
-        "• <b>Fee Persen:</b> {$feePercent}\n" .
-        "• <b>No Rekening/Account:</b> <code>{$numberVal}</code>\n" .
-        "• <b>Nama Rekening/Account:</b> <code>{$accountVal}</code>\n" .
-        "• <b>Logo Image URL:</b> <code>{$imageVal}</code>\n" .
-        "• <b>Minimal Transaksi:</b> {$minStr}\n" .
-        "• <b>Maksimal Transaksi:</b> {$maxStr}\n" .
-        "• <b>Status:</b> {$statusBadge}\n\n" .
-        "<b>Instruksi Pembayaran:</b>\n" .
-        "<pre>" . htmlspecialchars($instruksi, ENT_QUOTES, 'UTF-8') . "</pre>\n\n" .
+            "• <b>Nama Payment:</b> {$payment->name}\n" .
+            "• <b>Kode Payment:</b> <code>{$payment->code}</code>\n" .
+            "• <b>Provider:</b> <code>{$payment->provider}</code>\n" .
+            "• <b>Fee Fixed:</b> {$feeFixed}\n" .
+            "• <b>Fee Persen:</b> {$feePercent}\n" .
+            "• <b>No Rekening/Account:</b> <code>{$numberVal}</code>\n" .
+            "• <b>Nama Rekening/Account:</b> <code>{$accountVal}</code>\n" .
+            "• <b>Logo Image URL:</b> <code>{$imageVal}</code>\n" .
+            "• <b>Minimal Transaksi:</b> {$minStr}\n" .
+            "• <b>Maksimal Transaksi:</b> {$maxStr}\n" .
+            "• <b>Status:</b> {$statusBadge}\n\n" .
+            "<b>Instruksi Pembayaran:</b>\n" .
+            "<pre>" . htmlspecialchars($instruksi, ENT_QUOTES, 'UTF-8') . "</pre>\n\n" .
             "Pilih tombol di bawah ini untuk mengedit atau menghapus:";
 
         $keyboard = [
@@ -2631,7 +3200,7 @@ class HandleCallbackAdmin extends Controller
         $fieldLabel = match ($field) {
             'name'         => 'Nama Payment',
             'code'         => 'Kode Payment (contoh: QRIS, OVO, dll)',
-            'provider'     => 'Provider Payment (manual atau wijayapay)',
+            'provider'     => 'Provider Payment (manual, wijayapay, atau pakasir)',
             'fee_fixed'    => 'Fee Flat (hanya angka)',
             'fee_percent'  => 'Fee Persen (contoh: 0.7 atau 1.5)',
             'number'       => 'Nomor Rekening / Account (ketik - jika tidak ada)',
@@ -2773,7 +3342,7 @@ class HandleCallbackAdmin extends Controller
         ];
 
         $title = "📜 <b>Kelola Transaksi & Riwayat</b> (Halaman {$page}/{$totalPages})\n" .
-        "• Filter: <b>" . strtoupper($filter) . "</b>\n" .
+            "• Filter: <b>" . strtoupper($filter) . "</b>\n" .
             "• Total Data: <b>{$total}</b>\n\n" .
             $listTransactions .
             "Pilih nomor transaksi di bawah ini untuk melihat detail/mengubah:";
@@ -2819,14 +3388,14 @@ class HandleCallbackAdmin extends Controller
         $paymentName = $paymentInfo['name'] ?? '-';
 
         $caption = "🧾 <b>Detail Transaksi</b>\n\n" .
-        "• <b>Invoice ID:</b> <code>{$history->invoice_id}</code>\n" .
-        "• <b>Pelanggan:</b> {$buyerName} (<code>{$buyerId}</code>)\n" .
-        "• <b>Produk:</b> {$gameName} - {$denomName} (Provider: {$providerName})\n" .
-        "• <b>Metode Pembayaran:</b> {$paymentName}\n" .
-        "• <b>Total Bayar:</b> Rp " . number_format($history->price, 0, ',', '.') . "\n" .
-        "• <b>Status Pembayaran:</b> <code>" . strtoupper($history->payment_status ?? 'unpaid') . "</code>\n" .
-        "• <b>Status Proses:</b> <code>" . strtoupper($history->process_status ?? 'pending') . "</code>\n" .
-        "• <b>Catatan / Lisensi:</b>\n<pre>" . htmlspecialchars($history->notes ?? 'Tidak ada catatan', ENT_QUOTES, 'UTF-8') . "</pre>\n" .
+            "• <b>Invoice ID:</b> <code>{$history->invoice_id}</code>\n" .
+            "• <b>Pelanggan:</b> {$buyerName} (<code>{$buyerId}</code>)\n" .
+            "• <b>Produk:</b> {$gameName} - {$denomName} (Provider: {$providerName})\n" .
+            "• <b>Metode Pembayaran:</b> {$paymentName}\n" .
+            "• <b>Total Bayar:</b> Rp " . number_format($history->price, 0, ',', '.') . "\n" .
+            "• <b>Status Pembayaran:</b> <code>" . strtoupper($history->payment_status ?? 'unpaid') . "</code>\n" .
+            "• <b>Status Proses:</b> <code>" . strtoupper($history->process_status ?? 'pending') . "</code>\n" .
+            "• <b>Catatan / Lisensi:</b>\n<pre>" . htmlspecialchars($history->notes ?? 'Tidak ada catatan', ENT_QUOTES, 'UTF-8') . "</pre>\n" .
             "• <b>Waktu Dibuat:</b> {$history->created_at}\n\n" .
             "Silakan gunakan menu di bawah untuk mengelola status transaksi:";
 
@@ -3001,6 +3570,54 @@ class HandleCallbackAdmin extends Controller
                 'chat_id'  => $chatID,
                 'text'     => "❌ <b>Perubahan dibatalkan.</b>",
                 'mode'     => 'HTML',
+                'keyboard' => $keyboard,
+            ]);
+        }
+
+        // ----------------------------------------------------
+        // Add Stock Session
+        // ----------------------------------------------------
+        if (str_starts_with($user->session, 'admin_stock_add:')) {
+            $parts   = explode(':', $user->session);
+            $denomId = $parts[1] ?? null;
+            $denom   = Denom::find($denomId);
+
+            if (! $denom) {
+                $user->session = null;
+                $user->save();
+                return sendMessage([
+                    'chat_id' => $chatID,
+                    'text'    => "❌ Denom tidak ditemukan.",
+                ]);
+            }
+
+            $lines = explode("\n", $message);
+            $inserted = 0;
+            foreach ($lines as $line) {
+                $license = trim($line);
+                if ($license !== '') {
+                    Stock::create([
+                        'denom_id' => $denomId,
+                        'license'  => $license,
+                        'status'   => 'ready',
+                    ]);
+                    $inserted++;
+                }
+            }
+
+            $user->session = null;
+            $user->save();
+
+            $keyboard = [
+                [
+                    ['text' => '⬅️ Kelola Stok', 'callback_data' => "menu_admin:stock:manage:{$denomId}"],
+                ],
+            ];
+
+            return sendMessage([
+                'chat_id' => $chatID,
+                'text'    => "✅ <b>Berhasil Menambahkan Stok!</b>\n\n• Produk: <b>{$denom->name}</b>\n• Jumlah Lisensi Ditambahkan: <b>{$inserted} item</b>",
+                'mode'    => 'HTML',
                 'keyboard' => $keyboard,
             ]);
         }
@@ -3264,11 +3881,11 @@ class HandleCallbackAdmin extends Controller
             return sendMessage([
                 'chat_id' => $chatID,
                 'text'    => "📢 <b>Hasil Broadcast Pesan:</b>\n\n" .
-                "📝 <b>Preview:</b>\n<i>" . htmlspecialchars($previewText, ENT_QUOTES, 'UTF-8') . "</i>\n\n" .
-                "————————————————————————\n\n" .
-                "• Berhasil dikirim: <b>{$successCount} user</b>\n" .
-                "• Gagal dikirim: <b>{$failCount} user</b>\n\n" .
-                "<i>Proses broadcast telah selesai.</i>",
+                    "📝 <b>Preview:</b>\n<i>" . htmlspecialchars($previewText, ENT_QUOTES, 'UTF-8') . "</i>\n\n" .
+                    "————————————————————————\n\n" .
+                    "• Berhasil dikirim: <b>{$successCount} user</b>\n" .
+                    "• Gagal dikirim: <b>{$failCount} user</b>\n\n" .
+                    "<i>Proses broadcast telah selesai.</i>",
                 'mode'     => 'HTML',
                 'keyboard' => $keyboard,
             ]);
@@ -3314,7 +3931,7 @@ class HandleCallbackAdmin extends Controller
 
                 $code = strtoupper(trim($message));
 
-                // Advance to provider step, showing options manual and wijayapay
+                // Advance to provider step, showing options manual, wijayapay, and pakasir
                 $user->session = "admin_create_payment:provider:" . urlencode($name) . ":" . urlencode($code);
                 $user->save();
 
@@ -3322,13 +3939,14 @@ class HandleCallbackAdmin extends Controller
                     [
                         ['text' => 'manual', 'callback_data' => "menu_admin:payment_create_provider:manual:" . urlencode($name) . ":" . urlencode($code)],
                         ['text' => 'wijayapay', 'callback_data' => "menu_admin:payment_create_provider:wijayapay:" . urlencode($name) . ":" . urlencode($code)],
+                        ['text' => 'pakasir', 'callback_data' => "menu_admin:payment_create_provider:pakasir:" . urlencode($name) . ":" . urlencode($code)],
                     ],
                     [['text' => '❌ Batal', 'callback_data' => 'menu_admin:payment']],
                 ];
 
                 return sendMessage([
                     'chat_id' => $chatID,
-                    'text'    => "Nama: <b>" . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . "</b>\nKode: <code>{$code}</code>\n\n✍️ Silakan pilih <b>Provider Payment</b> (manual atau wijayapay) di bawah atau ketik nilainya langsung:",
+                    'text'    => "Nama: <b>" . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . "</b>\nKode: <code>{$code}</code>\n\n✍️ Silakan pilih <b>Provider Payment</b> (manual, wijayapay, atau pakasir) di bawah atau ketik nilainya langsung:",
                     'mode'     => 'HTML',
                     'keyboard' => $keyboard,
                 ]);
@@ -3337,10 +3955,10 @@ class HandleCallbackAdmin extends Controller
                 $code = urldecode($parts[3] ?? '');
 
                 $provider = strtolower(trim($message));
-                if ($provider !== 'manual' && $provider !== 'wijayapay') {
+                if ($provider !== 'manual' && $provider !== 'wijayapay' && $provider !== 'pakasir') {
                     return sendMessage([
                         'chat_id' => $chatID,
-                        'text'    => "❌ <b>Validasi Gagal:</b>\nProvider harus berupa 'manual' atau 'wijayapay'.\n\nSilakan kirimkan kembali provider yang valid, atau ketik /cancel untuk batal.",
+                        'text'    => "❌ <b>Validasi Gagal:</b>\nProvider harus berupa 'manual', 'wijayapay', atau 'pakasir'.\n\nSilakan kirimkan kembali provider yang valid, atau ketik /cancel untuk batal.",
                         'mode'    => 'HTML',
                     ]);
                 }
@@ -3567,8 +4185,8 @@ class HandleCallbackAdmin extends Controller
                 }
                 if ($field === 'provider') {
                     $cleanProv = strtolower(trim($message));
-                    if ($cleanProv !== 'manual' && $cleanProv !== 'wijayapay') {
-                        $error = 'Provider harus berupa "manual" atau "wijayapay".';
+                    if ($cleanProv !== 'manual' && $cleanProv !== 'wijayapay' && $cleanProv !== 'pakasir') {
+                        $error = 'Provider harus berupa "manual", "wijayapay", atau "pakasir".';
                     } else {
                         $val = $cleanProv;
                     }
@@ -3786,10 +4404,6 @@ class HandleCallbackAdmin extends Controller
                 'keyboard' => $keyboard,
             ]);
         }
-
-        // ----------------------------------------------------
-        // Create Provider Wizard Sessions
-        // ----------------------------------------------------
         if (str_starts_with($user->session, 'admin_create_provider:')) {
             $parts = explode(':', $user->session);
             $step  = $parts[1] ?? '';
@@ -3827,21 +4441,22 @@ class HandleCallbackAdmin extends Controller
 
                 $apiKey = $message;
 
-                // Advance to type step, showing options 1 and 2
                 $user->session = "admin_create_provider:type_api:" . urlencode($name) . ":" . urlencode($apiKey);
                 $user->save();
 
                 $keyboard = [
                     [
-                        ['text' => '1', 'callback_data' => "menu_admin:provider_create_type:1:" . urlencode($name) . ":" . urlencode($apiKey)],
-                        ['text' => '2', 'callback_data' => "menu_admin:provider_create_type:2:" . urlencode($name) . ":" . urlencode($apiKey)],
+                        ['text' => '0 (Stok)', 'callback_data' => "menu_admin:provider_create_type:0"],
+                        ['text' => '1', 'callback_data' => "menu_admin:provider_create_type:1"],
+                        ['text' => '2', 'callback_data' => "menu_admin:provider_create_type:2"],
+                        ['text' => '3', 'callback_data' => "menu_admin:provider_create_type:3"],
                     ],
                     [['text' => '❌ Batal', 'callback_data' => 'menu_admin:provider']],
                 ];
 
                 return sendMessage([
                     'chat_id'  => $chatID,
-                    'text'     => "Nama Provider: <b>" . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . "</b>\nAPI Key: <code>" . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . "</code>\n\n✍️ Silakan pilih <b>Type API</b> (1 atau 2) melalui tombol di bawah, atau ketik nilainya langsung:",
+                    'text'     => "Nama Provider: <b>" . htmlspecialchars($name, ENT_QUOTES, 'UTF-8') . "</b>\nAPI Key: <code>" . htmlspecialchars($apiKey, ENT_QUOTES, 'UTF-8') . "</code>\n\n✍️ Silakan pilih <b>Type API</b> (0, 1, 2, atau 3) melalui tombol di bawah, atau ketik nilainya langsung:",
                     'mode'     => 'HTML',
                     'keyboard' => $keyboard,
                 ]);
@@ -3849,24 +4464,23 @@ class HandleCallbackAdmin extends Controller
                 $name   = urldecode($parts[2] ?? '');
                 $apiKey = urldecode($parts[3] ?? '');
 
-                if ($message !== '1' && $message !== '2') {
+                if ($message !== '0' && $message !== '1' && $message !== '2' && $message !== '3') {
                     return sendMessage([
                         'chat_id' => $chatID,
-                        'text'    => "❌ <b>Validasi Gagal:</b>\nType API harus berupa angka 1 atau 2.\n\nSilakan kirim kembali nilai yang valid, atau ketik /cancel untuk batal.",
+                        'text'    => "❌ <b>Validasi Gagal:</b>\nType API harus berupa angka 0, 1, 2, atau 3.\n\nSilakan kirim kembali nilai yang valid, atau ketik /cancel untuk batal.",
                         'mode'    => 'HTML',
                     ]);
                 }
 
                 $type = intval($message);
 
-                // Advance to reset license step
                 $user->session = "admin_create_provider:reset_license:" . urlencode($name) . ":" . urlencode($apiKey) . ":{$type}";
                 $user->save();
 
                 $keyboard = [
                     [
-                        ['text' => '🟢 Enabled', 'callback_data' => "menu_admin:provider_create_reset:enabled:" . urlencode($name) . ":" . urlencode($apiKey) . ":{$type}"],
-                        ['text' => '🔴 Disabled', 'callback_data' => "menu_admin:provider_create_reset:disabled:" . urlencode($name) . ":" . urlencode($apiKey) . ":{$type}"],
+                        ['text' => '🟢 Enabled', 'callback_data' => "menu_admin:provider_create_reset:enabled"],
+                        ['text' => '🔴 Disabled', 'callback_data' => "menu_admin:provider_create_reset:disabled"],
                     ],
                     [['text' => '❌ Batal', 'callback_data' => 'menu_admin:provider']],
                 ];
@@ -3906,8 +4520,8 @@ class HandleCallbackAdmin extends Controller
                     $error = 'Nilai tidak boleh kosong.';
                 }
             } elseif ($field === 'type_api') {
-                if ($message !== '1' && $message !== '2') {
-                    $error = 'Type API harus berupa angka 1 or 2.';
+                if ($message !== '0' && $message !== '1' && $message !== '2' && $message !== '3') {
+                    $error = 'Type API harus berupa angka 0, 1, 2, atau 3.';
                 } else {
                     $val = intval($message);
                 }
@@ -4155,13 +4769,22 @@ class HandleCallbackAdmin extends Controller
             $parts    = explode(':', $user->session);
             $category = $parts[2] ?? '';
             $field    = $parts[3] ?? '';
+            $subfield = $parts[4] ?? '';
 
             $currentData = $config->{$category} ?? [];
             $error       = null;
             $val         = $message;
 
             if ($category === 'order') {
-                if ($field === 'exp_order') {
+                if ($field === 'custom_notes') {
+                    $customNotes = $currentData['custom_notes'] ?? [];
+                    if (empty(trim($message))) {
+                        $error = 'Catatan tidak boleh kosong.';
+                    } else {
+                        $customNotes[$subfield] = $message;
+                        $val                    = $customNotes;
+                    }
+                } elseif ($field === 'exp_order') {
                     if (! is_numeric($message) || intval($message) < 1) {
                         $error = 'Masa berlaku harus berupa angka minimal 1.';
                     } else {
@@ -4251,12 +4874,12 @@ class HandleCallbackAdmin extends Controller
                     }
                 }
             } elseif ($category === 'payments') {
-                $wijayapay = $currentData['wijayapay'] ?? [];
+                $gatewaySettings = $currentData[$field] ?? [];
                 if (empty(trim($message))) {
                     $error = 'Nilai tidak boleh kosong.';
                 } else {
-                    $wijayapay[$field]        = $message;
-                    $currentData['wijayapay'] = $wijayapay;
+                    $gatewaySettings[$subfield] = $message;
+                    $currentData[$field]        = $gatewaySettings;
                 }
             }
 
@@ -4279,16 +4902,23 @@ class HandleCallbackAdmin extends Controller
             $user->session = null;
             $user->save();
 
+            $backCallback = "menu_admin:config:{$category}";
+            if ($field === 'custom_notes') {
+                $backCallback = "menu_admin:config:{$category}:custom_notes";
+            } elseif ($category === 'payments') {
+                $backCallback = "menu_admin:config:payments:detail:{$field}";
+            }
+
             $keyboard = [
                 [
-                    ['text' => '⬅️ Kembali ke Menu Kategori', 'callback_data' => "menu_admin:config:{$category}"],
+                    ['text' => '⬅️ Kembali ke Detail Gateway', 'callback_data' => $backCallback],
                     ['text' => '⚙️ Menu Config', 'callback_data' => 'menu_admin:config'],
                 ],
             ];
 
             return sendMessage([
                 'chat_id'  => $chatID,
-                'text'     => "✅ <b>Berhasil Diperbarui!</b>\n\nPengaturan untuk <b>" . strtoupper($field) . "</b> telah diperbarui menjadi:\n<code>" . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . "</code>",
+                'text'     => "✅ <b>Berhasil Diperbarui!</b>\n\nPengaturan untuk <b>" . strtoupper($field) . ($subfield ? ' (' . strtoupper($subfield) . ')' : '') . "</b> telah diperbarui menjadi:\n<code>" . htmlspecialchars($message, ENT_QUOTES, 'UTF-8') . "</code>",
                 'mode'     => 'HTML',
                 'keyboard' => $keyboard,
             ]);

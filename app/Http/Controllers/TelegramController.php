@@ -2,6 +2,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Config;
+use App\Models\History;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Telegram\Bot\Laravel\Facades\Telegram;
@@ -66,7 +67,7 @@ class TelegramController extends Controller
         }
 
         if ($message && str_starts_with($message, '/cek_invoice')) {
-            $this->handleCekInvoice($message, $chatID, $dataMessage, $config);
+            $this->handleCekInvoice($message, $chatID, $dataMessage, $config, $user);
             return response('ok', 200);
         }
 
@@ -81,11 +82,13 @@ class TelegramController extends Controller
     private function syncUser($user = null, array $from): void
     {
         $changed =
+        $user->user_id !== ($from['id'] ?? null) ||
         $user->first_name !== ($from['first_name'] ?? null) ||
         $user->last_name !== ($from['last_name'] ?? null) ||
         $user->username !== ($from['username'] ?? null);
 
         if ($changed) {
+            $user->user_id    = $from['id'] ?? null;
             $user->first_name = $from['first_name'] ?? null;
             $user->last_name  = $from['last_name'] ?? null;
             $user->username   = $from['username'] ?? null;
@@ -93,7 +96,7 @@ class TelegramController extends Controller
         }
     }
 
-    private function handleCekInvoice(string $message, int $chatID, array $dataMessage, $config = null): void
+    private function handleCekInvoice(string $message, int $chatID, array $dataMessage, $config = null, $user = null): void
     {
         $parts     = explode(' ', trim($message), 2);
         $invoiceId = trim($parts[1] ?? '');
@@ -109,8 +112,11 @@ class TelegramController extends Controller
             ]);
             return;
         }
-
-        $history = \App\Models\History::where('invoice_id', $invoiceId)->first();
+        if ($user->role == 'user') {
+            $history = History::where([['user_id', $user->id], ['invoice_id', $invoiceId]])->first();
+        } else {
+            $history = History::where('invoice_id', $invoiceId)->first();
+        }
 
         if ($history) {
             (new HandleCallback())->showInvoice($history, $dataMessage, $config);
@@ -126,7 +132,7 @@ class TelegramController extends Controller
     }
     public function sessionStart(int $chatID, array $dataMessage, $config = null, $animation = true): void
     {
-        $user = User::where('user_id', $chatID)->first();
+        $user = User::where('user_id', $dataMessage['chat']['id'])->first();
         if ($user && ! empty($user->session)) {
             $user->session = null;
             $user->save();

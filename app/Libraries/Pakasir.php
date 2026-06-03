@@ -156,26 +156,4 @@ class Pakasir
 
         return $result;
     }
-    public function parseWebhook(?string $rawBody = null): ?array
-    {
-        $rawBody = $rawBody ?? file_get_contents('php://input');
-        $payload = json_decode($rawBody, true);
-
-        if (! is_array($payload)) {
-            return null;
-        }
-
-        $required = ['amount', 'order_id', 'project', 'status', 'payment_method'];
-        foreach ($required as $key) {
-            if (! isset($payload[$key])) {
-                return null;
-            }
-        }
-
-        if ($payload['project'] !== $this->project) {
-            return null;
-        }
-
-        return $payload;
-    }
 }
