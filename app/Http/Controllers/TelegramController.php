@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers;
 
 use App\Models\Config;
@@ -23,15 +24,18 @@ class TelegramController extends Controller
         $dataMessage   = $data['message'] ?? [];
         $message       = $dataMessage['text'] ?? null;
         $typeChat      = $dataMessage['chat']['type'] ?? null;
-        $chatID        = $dataMessage['chat']['id'] ?? null;
+        $chatID        = isset($dataMessage['chat']['id']) ? (string) $dataMessage['chat']['id'] : null;
         $callbackQuery = $data['callback_query'] ?? [];
 
         if ($callbackQuery) {
-            $user = User::where('user_id', $callbackQuery['from']['id'] ?? 0)->first();
+            $callbackFromId = isset($callbackQuery['from']['id']) ? (string) $callbackQuery['from']['id'] : null;
+            $user = User::where('user_id', $callbackFromId)->first();
+
             if ($user) {
                 $this->syncUser($user, $callbackQuery['from']);
                 return (new HandleCallback())->handle($callbackQuery, $user, $config);
             }
+
             return response('ok', 200);
         }
 
@@ -39,12 +43,17 @@ class TelegramController extends Controller
             return response('ok', 200);
         }
 
-        $user = User::where('user_id', $dataMessage['from']['id'] ?? 0)->first();
+        $fromId = isset($dataMessage['from']['id']) ? (string) $dataMessage['from']['id'] : null;
+
+        $user = User::where('user_id', $fromId)->orWhere('user_id', $dataMessage['from']['id'])->first();
+
         if ($user) {
             $this->syncUser($user, $dataMessage['from']);
+            $user->refresh();
         }
 
         $hasSession = $user && ! empty($user->session);
+
         if (! $message && ! $hasSession) {
             return response('ok', 200);
         }
@@ -54,20 +63,22 @@ class TelegramController extends Controller
                 $user->session = null;
                 $user->save();
             }
+
             if (! $user) {
-                User::create([
-                    'user_id'    => $dataMessage['from']['id'],
-                    'first_name' => $dataMessage['from']['first_name'],
+                $user = User::create([
+                    'user_id'    => $fromId,
+                    'first_name' => $dataMessage['from']['first_name'] ?? null,
                     'last_name'  => $dataMessage['from']['last_name'] ?? null,
                     'username'   => $dataMessage['from']['username'] ?? null,
                 ]);
             }
-            $this->sessionStart((int) $chatID, $dataMessage, $config);
+
+            $this->sessionStart($chatID, $dataMessage, $config);
             return response('ok', 200);
         }
 
         if ($message && str_starts_with($message, '/cek_invoice')) {
-            $this->handleCekInvoice($message, $chatID, $dataMessage, $config, $user);
+            $this->handleCekInvoice($message, (int) $chatID, $dataMessage, $config, $user);
             return response('ok', 200);
         }
 
@@ -81,18 +92,121 @@ class TelegramController extends Controller
 
     private function syncUser($user = null, array $from): void
     {
+        $newId = isset($from['id']) ? (string) $from['id'] : null;
+
         $changed =
-        $user->user_id !== ($from['id'] ?? null) ||
-        $user->first_name !== ($from['first_name'] ?? null) ||
-        $user->last_name !== ($from['last_name'] ?? null) ||
-        $user->username !== ($from['username'] ?? null);
+            $user->user_id !== $newId ||
+            $user->first_name !== ($from['first_name'] ?? null) ||
+            $user->last_name !== ($from['last_name'] ?? null) ||
+            $user->username !== ($from['username'] ?? null);
 
         if ($changed) {
-            $user->user_id    = $from['id'] ?? null;
+            $user->user_id = $newId;
             $user->first_name = $from['first_name'] ?? null;
-            $user->last_name  = $from['last_name'] ?? null;
-            $user->username   = $from['username'] ?? null;
+            $user->last_name = $from['last_name'] ?? null;
+            $user->username = $from['username'] ?? null;
             $user->save();
+        }
+    }
+
+    public function sessionStart($chatID, array $dataMessage, $config = null, $animation = true): void
+    {
+        $chatIdString = (string) $chatID;
+        $user = User::where('user_id', $chatIdString)->first();
+
+        if ($user && ! empty($user->session)) {
+            $user->session = null;
+            $user->save();
+        }
+
+        $hour = (int) date('H');
+
+        $greeting = match (true) {
+            $hour >= 4 && $hour < 11  => 'Selamat Pagi',
+            $hour >= 11 && $hour < 15 => 'Selamat Siang',
+            $hour >= 15 && $hour < 19 => 'Selamat Sore',
+            default                   => 'Selamat Malam',
+        };
+
+        $firstName = htmlspecialchars($dataMessage['chat']['first_name'] ?? 'User', ENT_QUOTES, 'UTF-8');
+
+        $captionRow   = collect($config->captions['orders'] ?? [])->firstWhere('key', 'menu_start');
+        $template     = is_array($captionRow) ? ($captionRow['content'] ?? null) : null;
+        $finalCaption = str_replace(
+            ['{greeting}', '{firstname}'],
+            [$greeting, $firstName],
+            $template ?? "<b>{$greeting} {$firstName}</b>\n\nSelamat datang di bot 🚀"
+        );
+
+        $keyboard = [
+            [['text' => '🛒 Mulai Pesan', 'callback_data' => 'menu_games']],
+            [
+                ['text' => '👤 Akun Saya', 'callback_data' => 'menu_account'],
+                ['text' => '♻️ Reset Lisensi', 'callback_data' => 'menu_resetlicense'],
+            ],
+            [
+                ['text' => '🏆 Leaderboard', 'callback_data' => 'leaderboard'],
+                ['text' => '📢 Pengumuman', 'callback_data' => 'pengumuman'],
+            ],
+            [['text' => '📜 Riwayat Transaksi', 'callback_data' => 'menu_history']],
+        ];
+
+        if ($user && $user->role === 'admin') {
+            $keyboard[] = [['text' => '👨‍💼 Menu Admin', 'callback_data' => 'menu_admin']];
+        }
+
+        try {
+            $messageID = null;
+
+            if ($animation) {
+                $sendMessage = Telegram::sendPhoto([
+                    'chat_id' => $chatIdString,
+                    'photo' => $config->bot['image'],
+                    'caption' => 'Menyiapkan menu...',
+                    'parse_mode' => 'HTML',
+                ]);
+
+                $messageID = $sendMessage->getMessageId();
+
+                foreach (['[■□□□□]', '[■■□□□]', '[■■■■□]', '[■■■■■]'] as $frame) {
+                    Telegram::editMessageCaption([
+                        'chat_id' => $chatIdString,
+                        'message_id' => $messageID,
+                        'caption' => "<b>{$greeting} {$firstName}</b>\n\n<b>Menyiapkan menu</b> {$frame}",
+                        'parse_mode' => 'HTML',
+                    ]);
+
+                    usleep(800000);
+                }
+            }
+
+            if ($messageID) {
+                Telegram::editMessageCaption([
+                    'chat_id' => $chatIdString,
+                    'message_id' => $messageID,
+                    'caption' => $finalCaption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => $keyboard,
+                    ]),
+                ]);
+            } else {
+                Telegram::sendPhoto([
+                    'chat_id' => $chatIdString,
+                    'photo' => $config->bot['image'],
+                    'caption' => $finalCaption,
+                    'parse_mode' => 'HTML',
+                    'reply_markup' => json_encode([
+                        'inline_keyboard' => $keyboard,
+                    ]),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            logger()->error('sessionStart failed', [
+                'message' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => $e->getFile(),
+            ]);
         }
     }
 
@@ -129,122 +243,5 @@ class TelegramController extends Controller
             'mode'     => 'HTML',
             'keyboard' => $backKeyboard,
         ]);
-    }
-    public function sessionStart(int $chatID, array $dataMessage, $config = null, $animation = true): void
-    {
-        $user = User::where('user_id', $dataMessage['chat']['id'])->first();
-        if ($user && ! empty($user->session)) {
-            $user->session = null;
-            $user->save();
-        }
-
-        $hour = (int) date('H');
-
-        $greeting = match (true) {
-            $hour >= 4 && $hour < 11  => 'Selamat Pagi',
-            $hour >= 11 && $hour < 15 => 'Selamat Siang',
-            $hour >= 15 && $hour < 19 => 'Selamat Sore',
-            default                   => 'Selamat Malam',
-        };
-
-        $firstName = htmlspecialchars(
-            $dataMessage['chat']['first_name'] ?? 'User',
-            ENT_QUOTES,
-            'UTF-8'
-        );
-
-        try {
-            if ($animation) {
-                $sendMessage = Telegram::sendPhoto([
-                    'chat_id'    => $chatID,
-                    'photo'      => $config->bot['image'],
-                    'caption'    => 'Menyiapkan menu...',
-                    'parse_mode' => 'HTML',
-                ]);
-
-                $messageID = $sendMessage->getMessageId();
-                $frames    = [
-                    '[■□□□□]',
-                    '[■■□□□]',
-                    '[■■■■□]',
-                    '[■■■■■]',
-                ];
-
-                foreach ($frames as $frame) {
-                    $caption = "<b>{$greeting} {$firstName}</b>\n\n<b>Menyiapkan menu</b> {$frame}";
-
-                    editCaption([
-                        'chat_id'    => $chatID,
-                        'message_id' => $messageID,
-                        'caption'    => $caption,
-                        'parse_mode' => 'HTML',
-                    ]);
-
-                    usleep(800000);
-                }
-            }
-
-            $captionRow   = collect($config->captions['orders'] ?? [])->firstWhere('key', 'menu_start');
-            $template     = is_array($captionRow) ? ($captionRow['content'] ?? null) : null;
-            $finalCaption = str_replace(
-                ['{greeting}', '{firstname}'],
-                [$greeting, $firstName],
-                $template ?? "<b>{$greeting} {$firstName}</b>\n\nSelamat datang di bot 🚀"
-            );
-
-            $keyboard = [
-                [
-                    ['text' => '🛒 Mulai Pesan', 'callback_data' => 'menu_games'],
-                ],
-                [
-                    ['text' => '👤 Akun Saya', 'callback_data' => 'menu_account'],
-                    ['text' => '♻️ Reset Lisensi', 'callback_data' => 'menu_resetlicense'],
-                ],
-                [
-                    ['text' => '🏆 Leaderboard', 'callback_data' => 'leaderboard'],
-                    ['text' => '📢 Pengumuman', 'callback_data' => 'pengumuman'],
-                ],
-                [
-                    ['text' => '📜 Riwayat Transaksi', 'callback_data' => 'menu_history'],
-                ],
-            ];
-            if ($user->role == 'admin') {
-                $keyboard[] = [
-                    ['text' => '👨‍💼 Menu Admin', 'callback_data' => 'menu_admin'],
-                ];
-            }
-
-            if (isset($messageID)) {
-                editCaption([
-                    'chat_id'    => $chatID,
-                    'message_id' => $messageID,
-                    'caption'    => $finalCaption,
-                    'parse_mode' => 'HTML',
-                    'keyboard'   => $keyboard,
-                ]);
-            } else {
-                if (isset($dataMessage['photo'])) {
-                    editMessage(
-                        $chatID,
-                        $dataMessage['message_id'],
-                        $config->bot['image'],
-                        $finalCaption,
-                        $keyboard
-                    );
-                } else {
-                    if (isset($dataMessage['message_id'])) {
-                        deleteMessage($chatID, $dataMessage['message_id']);
-                    }
-                    sendPhoto(
-                        $chatID,
-                        $config->bot['image'],
-                        $finalCaption,
-                        $keyboard
-                    );
-                }
-            }
-        } catch (\Throwable $e) {
-            return;
-        }
     }
 }

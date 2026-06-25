@@ -3548,7 +3548,9 @@ class HandleCallbackAdmin extends Controller
      */
     public function handleAdminSession(string $message, int $chatID, array $dataMessage, $user = null, $config = null)
     {
-        if (isset($dataMessage['message_id'])) {
+        $isBroadcast = $user && str_starts_with($user->session, 'admin_broadcast:message');
+
+        if (isset($dataMessage['message_id']) && !$isBroadcast) {
             deleteMessage($chatID, $dataMessage['message_id']);
         }
 
@@ -3854,7 +3856,19 @@ class HandleCallbackAdmin extends Controller
                 ]);
             }
 
-            $allUsers     = User::where('id', '!=', $user->id)->get();
+            $startTime = microtime(true);
+
+            $loadingMsg = sendMessage([
+                'chat_id' => $chatID,
+                'text'    => "⏳ <b>Sedang memproses broadcast...</b>\n\nMohon tunggu sebentar, pesan sedang dikirim ke semua user.",
+                'mode'    => 'HTML',
+            ]);
+            $loadingMessageId = null;
+            if ($loadingMsg) {
+                $loadingMessageId = $loadingMsg->getMessageId() ?? $loadingMsg['message_id'] ?? null;
+            }
+
+            $allUsers     = User::where('role', 'user')->where('id', '!=', $user->id)->get();
             $successCount = 0;
             $failCount    = 0;
 
@@ -3872,23 +3886,46 @@ class HandleCallbackAdmin extends Controller
                 }
             }
 
+            if (isset($dataMessage['message_id'])) {
+                deleteMessage($chatID, $dataMessage['message_id']);
+            }
+
+            $endTime = microtime(true);
+            $durationSeconds = $endTime - $startTime;
+            $minutes = floor($durationSeconds / 60);
+            $seconds = $durationSeconds % 60;
+
+            $durationText = '';
+            if ($minutes > 0) {
+                $durationText .= "{$minutes} menit " . round($seconds) . " detik";
+            } else {
+                $durationText .= number_format($seconds, 1) . " detik";
+            }
+
             $keyboard = [
                 [
                     ['text' => '⬅️ Menu Admin', 'callback_data' => 'menu_admin'],
                 ],
             ];
 
-            return sendMessage([
-                'chat_id' => $chatID,
-                'text'    => "📢 <b>Hasil Broadcast Pesan:</b>\n\n" .
-                    "📝 <b>Preview:</b>\n<i>" . htmlspecialchars($previewText, ENT_QUOTES, 'UTF-8') . "</i>\n\n" .
-                    "————————————————————————\n\n" .
-                    "• Berhasil dikirim: <b>{$successCount} user</b>\n" .
-                    "• Gagal dikirim: <b>{$failCount} user</b>\n\n" .
-                    "<i>Proses broadcast telah selesai.</i>",
-                'mode'     => 'HTML',
-                'keyboard' => $keyboard,
-            ]);
+            $finalText = "📢 <b>Hasil Broadcast Pesan:</b>\n\n" .
+                "📝 <b>Preview:</b>\n<i>" . htmlspecialchars($previewText, ENT_QUOTES, 'UTF-8') . "</i>\n\n" .
+                "————————————————————————\n\n" .
+                "• Berhasil dikirim: <b>{$successCount} user</b>\n" .
+                "• Gagal dikirim: <b>{$failCount} user</b>\n" .
+                "• Waktu pengerjaan: <b>{$durationText}</b>\n\n" .
+                "<i>Proses broadcast telah selesai.</i>";
+
+            if ($loadingMessageId) {
+                return editText($chatID, $loadingMessageId, $finalText, $keyboard, 'HTML');
+            } else {
+                return sendMessage([
+                    'chat_id'  => $chatID,
+                    'text'     => $finalText,
+                    'mode'     => 'HTML',
+                    'keyboard' => $keyboard,
+                ]);
+            }
         }
 
         // ----------------------------------------------------
